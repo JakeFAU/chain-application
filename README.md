@@ -105,6 +105,12 @@ that exceeds the reserved HTTP drain window can still be running when the
 bounded drain ends and later cleanup begins. Telemetry is disabled by default,
 so local startup does not require an OpenTelemetry Collector.
 
+When telemetry is enabled, `CHAIN_OTEL_TRACE_SAMPLE_RATIO` controls new root
+traces and defaults to `1.0`. Valid sampled and unsampled upstream decisions
+are honored through parent-based sampling. The application supplies this
+policy explicitly and does not read `OTEL_TRACES_SAMPLER` or
+`OTEL_TRACES_SAMPLER_ARG`.
+
 ## Local PostgreSQL and migrations
 
 The database workflow is local-only. Copy the committed template to an ignored
@@ -181,6 +187,7 @@ startup before the application accepts traffic.
 | `CHAIN_LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, or `error`. |
 | `CHAIN_SHUTDOWN_TIMEOUT` | `8s` | Go duration greater than `1s` and at most `9s`. |
 | `CHAIN_OTEL_ENABLED` | `false` | Go boolean accepted by `strconv.ParseBool`. When true, `OTEL_EXPORTER_OTLP_ENDPOINT` is required. |
+| `CHAIN_OTEL_TRACE_SAMPLE_RATIO` | `1.0` | Finite number from `0` through `1`; applies to new root traces while valid upstream sampled and unsampled decisions are honored. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Required when `CHAIN_OTEL_ENABLED` is true. |
 | `CHAIN_GCP_PROJECT_ID` | none | Required when `CHAIN_DEPLOYMENT_ENVIRONMENT` is `production`. |
 | `CHAIN_DEPLOYMENT_ENVIRONMENT` | `local` | One of `local`, `development`, or `production`. |

@@ -195,6 +195,9 @@ func newTelemetry(
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(telemetryResource),
 		sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(traceExporter)),
+		sdktrace.WithSampler(sdktrace.ParentBased(
+			sdktrace.TraceIDRatioBased(float64(cfg.TraceSampleRatio)),
+		)),
 	)
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(telemetryResource),

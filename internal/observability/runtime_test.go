@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JakeFAU/chain-application/internal/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -292,6 +293,73 @@ func TestOTLPEndpointTransportSecurity(t *testing.T) {
 	}
 }
 
+func TestEnabledRuntimeSamplingIgnoresAmbientOTELSampler(t *testing.T) {
+	t.Setenv("OTEL_TRACES_SAMPLER", "always_off")
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0")
+
+	runtime := newSamplingTestRuntime(t, loadTestConfig(t, map[string]string{
+		"CHAIN_OTEL_ENABLED":          "true",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
+	}))
+	_, span := runtime.tracerProvider.Tracer("ambient-sampler-test").Start(
+		context.Background(),
+		"root-span",
+	)
+	defer span.End()
+
+	if !span.SpanContext().IsSampled() {
+		t.Fatal("root span is not sampled, want configured default ratio to override ambient sampler")
+	}
+}
+
+func TestEnabledRuntimeUsesParentBasedTraceRatioSampling(t *testing.T) {
+	tests := []struct {
+		name          string
+		ratio         string
+		parent        *trace.SpanContext
+		wantSampled   bool
+		wantRecording bool
+	}{
+		{name: "zero ratio drops root", ratio: "0"},
+		{name: "one ratio samples root", ratio: "1", wantSampled: true, wantRecording: true},
+		{
+			name:          "sampled remote parent is honored at zero ratio",
+			ratio:         "0",
+			parent:        remoteSpanContext(true),
+			wantSampled:   true,
+			wantRecording: true,
+		},
+		{
+			name:   "unsampled remote parent is honored at one ratio",
+			ratio:  "1",
+			parent: remoteSpanContext(false),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := newSamplingTestRuntime(t, loadTestConfig(t, map[string]string{
+				"CHAIN_OTEL_ENABLED":            "true",
+				"CHAIN_OTEL_TRACE_SAMPLE_RATIO": test.ratio,
+				"OTEL_EXPORTER_OTLP_ENDPOINT":   "http://localhost:4317",
+			}))
+			ctx := context.Background()
+			if test.parent != nil {
+				ctx = trace.ContextWithRemoteSpanContext(ctx, *test.parent)
+			}
+			_, span := runtime.tracerProvider.Tracer("sampling-policy-test").Start(ctx, "span")
+			defer span.End()
+
+			if got := span.SpanContext().IsSampled(); got != test.wantSampled {
+				t.Fatalf("sampled = %t, want %t", got, test.wantSampled)
+			}
+			if got := span.IsRecording(); got != test.wantRecording {
+				t.Fatalf("recording = %t, want %t", got, test.wantRecording)
+			}
+		})
+	}
+}
+
 func TestEnabledRuntimeOwnsTraceAndMetricPipelines(t *testing.T) {
 	t.Parallel()
 
@@ -377,6 +445,55 @@ func TestEnabledRuntimeOwnsTraceAndMetricPipelines(t *testing.T) {
 	assertResourceAttribute(t, traceResource, "service.name", "attribution-chain-api")
 	assertResourceAttribute(t, traceResource, "service.version", "test-version")
 	assertResourceAttribute(t, traceResource, "deployment.environment.name", "local")
+}
+
+func newSamplingTestRuntime(t *testing.T, cfg config.Config) *Runtime {
+	t.Helper()
+
+	runtime, err := New(
+		t.Context(),
+		cfg,
+		WithLogSink(zapcore.AddSync(&bytes.Buffer{})),
+		Option(func(options *options) {
+			options.traceExporterFactory = func(
+				context.Context,
+				...otlptracegrpc.Option,
+			) (sdktrace.SpanExporter, error) {
+				return newRecordingTraceExporter(), nil
+			}
+			options.metricExporterFactory = func(
+				context.Context,
+				...otlpmetricgrpc.Option,
+			) (sdkmetric.Exporter, error) {
+				return newRecordingMetricExporter(), nil
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := runtime.Shutdown(ctx); err != nil {
+			t.Errorf("Shutdown: %v", err)
+		}
+	})
+	return runtime
+}
+
+func remoteSpanContext(sampled bool) *trace.SpanContext {
+	flags := trace.TraceFlags(0)
+	if sampled {
+		flags = trace.FlagsSampled
+	}
+	spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{1},
+		SpanID:     trace.SpanID{1},
+		TraceFlags: flags,
+		Remote:     true,
+	})
+	return &spanContext
 }
 
 func TestShutdownProvidersStartsBothWithLiveContextAndJoinsErrors(t *testing.T) {

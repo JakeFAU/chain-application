@@ -9,7 +9,11 @@ import (
 
 type Server struct{}
 
-const healthStatus = "ok"
+const (
+	healthStatus               = "ok"
+	invalidRequestMessage      = "invalid request"
+	internalServerErrorMessage = "internal server error"
+)
 
 var _ StrictServerInterface = (*Server)(nil)
 
@@ -20,8 +24,22 @@ func (*Server) GetHealthz(
 	return GetHealthz200JSONResponse{Status: healthStatus}, nil
 }
 
-func NewHandler(server *Server, wrap func(http.Handler) http.Handler) http.Handler {
+func NewHandler(server StrictServerInterface, wrap func(http.Handler) http.Handler) http.Handler {
 	router := chi.NewRouter()
-	strictHandler := HandlerFromMux(NewStrictHandler(server, nil), router)
+	strictHandler := HandlerFromMux(
+		NewStrictHandlerWithOptions(server, nil, strictHTTPServerOptions()),
+		router,
+	)
 	return wrap(strictHandler)
+}
+
+func strictHTTPServerOptions() StrictHTTPServerOptions {
+	return StrictHTTPServerOptions{
+		RequestErrorHandlerFunc: func(response http.ResponseWriter, _ *http.Request, _ error) {
+			http.Error(response, invalidRequestMessage, http.StatusBadRequest)
+		},
+		ResponseErrorHandlerFunc: func(response http.ResponseWriter, _ *http.Request, _ error) {
+			http.Error(response, internalServerErrorMessage, http.StatusInternalServerError)
+		},
+	}
 }

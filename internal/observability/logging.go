@@ -2,6 +2,7 @@ package observability
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/JakeFAU/chain-application/internal/config"
@@ -9,7 +10,25 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const unsupportedLogLevelReason = "unsupported log level"
+const (
+	unsupportedLogLevelReason   = "unsupported log level"
+	httpServerDiagnosticMessage = "HTTP server diagnostic"
+)
+
+type httpServerLogWriter struct {
+	logger *zap.Logger
+}
+
+// HTTPServerErrorLog bridges standard-library HTTP diagnostics into the
+// process logger without retaining or emitting diagnostic bytes.
+func (runtime Runtime) HTTPServerErrorLog() *log.Logger {
+	return log.New(httpServerLogWriter{logger: runtime.logger}, "", 0)
+}
+
+func (writer httpServerLogWriter) Write(diagnostic []byte) (int, error) {
+	writer.logger.Warn(httpServerDiagnosticMessage)
+	return len(diagnostic), nil
+}
 
 func newLogger(level config.LogLevel, sink zapcore.WriteSyncer) (*zap.Logger, error) {
 	zapLevel, err := parseLogLevel(level)

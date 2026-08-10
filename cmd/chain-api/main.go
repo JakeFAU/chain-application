@@ -59,7 +59,7 @@ func run() int {
 		cleanupRuntimeAfterStartupFailure(cfg, observabilityRuntime, logger)
 		return exitFailure
 	}
-	server := app.NewHTTPServer(cfg.Address(), handler)
+	server := app.NewHTTPServer(cfg.Address(), handler, observabilityRuntime.HTTPServerErrorLog())
 
 	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()

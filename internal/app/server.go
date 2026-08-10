@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log"
 	"net/http"
 	"time"
 )
@@ -13,10 +14,11 @@ const (
 )
 
 // NewHTTPServer constructs the process HTTP server with explicit transport bounds.
-func NewHTTPServer(address string, handler http.Handler) *http.Server {
+func NewHTTPServer(address string, handler http.Handler, errorLog *log.Logger) *http.Server {
 	return &http.Server{
 		Addr:              address,
 		Handler:           handler,
+		ErrorLog:          errorLog,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,

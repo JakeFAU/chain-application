@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ const (
 	environmentLogLevel              = "CHAIN_LOG_LEVEL"
 	environmentShutdownTimeout       = "CHAIN_SHUTDOWN_TIMEOUT"
 	environmentTelemetryEnabled      = "CHAIN_OTEL_ENABLED"
+	environmentTraceSampleRatio      = "CHAIN_OTEL_TRACE_SAMPLE_RATIO"
 	environmentTelemetryEndpoint     = "OTEL_EXPORTER_OTLP_ENDPOINT"
 	environmentProjectID             = "CHAIN_GCP_PROJECT_ID"
 	environmentDeploymentEnvironment = "CHAIN_DEPLOYMENT_ENVIRONMENT"
@@ -21,6 +23,7 @@ const (
 	defaultLogLevel              = "info"
 	defaultShutdownTimeout       = "8s"
 	defaultTelemetryEnabled      = "false"
+	defaultTraceSampleRatio      = "1.0"
 	defaultDeploymentEnvironment = "local"
 	defaultServiceName           = "attribution-chain-api"
 
@@ -33,6 +36,7 @@ const (
 	invalidPortReason     = "invalid port"
 	invalidBooleanReason  = "invalid boolean"
 	invalidDurationReason = "invalid duration"
+	invalidRatioReason    = "invalid trace sample ratio"
 )
 
 // LookupEnv reads one environment variable at the startup boundary.
@@ -57,14 +61,23 @@ const (
 	EnvironmentProduction  DeploymentEnvironment = "production"
 )
 
+// TraceSampleRatio controls sampling for new root traces.
+type TraceSampleRatio float64
+
+const (
+	minimumTraceSampleRatio TraceSampleRatio = 0
+	maximumTraceSampleRatio TraceSampleRatio = 1
+)
+
 // Telemetry contains observability configuration validated at startup.
 type Telemetry struct {
-	Enabled     bool
-	Endpoint    string
-	ProjectID   string
-	Environment DeploymentEnvironment
-	ServiceName string
-	Version     string
+	Enabled          bool
+	TraceSampleRatio TraceSampleRatio
+	Endpoint         string
+	ProjectID        string
+	Environment      DeploymentEnvironment
+	ServiceName      string
+	Version          string
 }
 
 // Config contains all typed application startup configuration.
@@ -156,6 +169,10 @@ func loadTelemetry(lookup LookupEnv, buildVersion string) (Telemetry, error) {
 	if err != nil {
 		return Telemetry{}, fmt.Errorf("%s: %s", environmentTelemetryEnabled, invalidBooleanReason)
 	}
+	traceSampleRatio, err := loadTraceSampleRatio(lookup)
+	if err != nil {
+		return Telemetry{}, err
+	}
 
 	environment, err := loadDeploymentEnvironment(lookup)
 	if err != nil {
@@ -173,13 +190,33 @@ func loadTelemetry(lookup LookupEnv, buildVersion string) (Telemetry, error) {
 	}
 
 	return Telemetry{
-		Enabled:     enabled,
-		Endpoint:    endpoint,
-		ProjectID:   projectID,
-		Environment: environment,
-		ServiceName: defaultServiceName,
-		Version:     buildVersion,
+		Enabled:          enabled,
+		TraceSampleRatio: traceSampleRatio,
+		Endpoint:         endpoint,
+		ProjectID:        projectID,
+		Environment:      environment,
+		ServiceName:      defaultServiceName,
+		Version:          buildVersion,
 	}, nil
+}
+
+func loadTraceSampleRatio(lookup LookupEnv) (TraceSampleRatio, error) {
+	value := lookupOrDefault(lookup, environmentTraceSampleRatio, defaultTraceSampleRatio)
+	ratio, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return 0, fmt.Errorf("%s: %s", environmentTraceSampleRatio, invalidRatioReason)
+	}
+
+	typedRatio := TraceSampleRatio(ratio)
+	if typedRatio < minimumTraceSampleRatio || typedRatio > maximumTraceSampleRatio {
+		return 0, fmt.Errorf(
+			"%s must be between %g and %g",
+			environmentTraceSampleRatio,
+			minimumTraceSampleRatio,
+			maximumTraceSampleRatio,
+		)
+	}
+	return typedRatio, nil
 }
 
 func loadDeploymentEnvironment(lookup LookupEnv) (DeploymentEnvironment, error) {

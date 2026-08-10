@@ -19,11 +19,12 @@ func TestLoadDefaults(t *testing.T) {
 		{
 			name: "empty values",
 			values: map[string]string{
-				"PORT":                         " ",
-				"CHAIN_LOG_LEVEL":              " ",
-				"CHAIN_SHUTDOWN_TIMEOUT":       " ",
-				"CHAIN_OTEL_ENABLED":           " ",
-				"CHAIN_DEPLOYMENT_ENVIRONMENT": " ",
+				"PORT":                          " ",
+				"CHAIN_LOG_LEVEL":               " ",
+				"CHAIN_SHUTDOWN_TIMEOUT":        " ",
+				"CHAIN_OTEL_ENABLED":            " ",
+				"CHAIN_OTEL_TRACE_SAMPLE_RATIO": " ",
+				"CHAIN_DEPLOYMENT_ENVIRONMENT":  " ",
 			},
 		},
 	}
@@ -50,6 +51,9 @@ func TestLoadDefaults(t *testing.T) {
 			}
 			if config.Telemetry.Enabled {
 				t.Fatal("Telemetry.Enabled = true, want false")
+			}
+			if config.Telemetry.TraceSampleRatio != 1.0 {
+				t.Fatalf("Telemetry.TraceSampleRatio = %v, want 1", config.Telemetry.TraceSampleRatio)
 			}
 			if config.Telemetry.Environment != DeploymentEnvironment("local") {
 				t.Fatalf("Telemetry.Environment = %q, want local", config.Telemetry.Environment)
@@ -96,6 +100,26 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			name:    "invalid telemetry boolean",
 			values:  map[string]string{"CHAIN_OTEL_ENABLED": "sometimes"},
 			wantEnv: "CHAIN_OTEL_ENABLED",
+		},
+		{
+			name:    "negative trace sample ratio",
+			values:  map[string]string{"CHAIN_OTEL_TRACE_SAMPLE_RATIO": "-0.1"},
+			wantEnv: "CHAIN_OTEL_TRACE_SAMPLE_RATIO",
+		},
+		{
+			name:    "trace sample ratio above one",
+			values:  map[string]string{"CHAIN_OTEL_TRACE_SAMPLE_RATIO": "1.1"},
+			wantEnv: "CHAIN_OTEL_TRACE_SAMPLE_RATIO",
+		},
+		{
+			name:    "NaN trace sample ratio",
+			values:  map[string]string{"CHAIN_OTEL_TRACE_SAMPLE_RATIO": "NaN"},
+			wantEnv: "CHAIN_OTEL_TRACE_SAMPLE_RATIO",
+		},
+		{
+			name:    "infinite trace sample ratio",
+			values:  map[string]string{"CHAIN_OTEL_TRACE_SAMPLE_RATIO": "+Inf"},
+			wantEnv: "CHAIN_OTEL_TRACE_SAMPLE_RATIO",
 		},
 		{
 			name:    "shutdown timeout at lower bound",
@@ -174,6 +198,13 @@ func TestLoadParseErrorsDoNotExposeInput(t *testing.T) {
 			wantReason: "invalid duration",
 			sentinel:   "secret-duration-value-1ae269d6",
 		},
+		{
+			name:       "trace sample ratio",
+			values:     map[string]string{"CHAIN_OTEL_TRACE_SAMPLE_RATIO": "secret-ratio-value-51b4369d"},
+			wantEnv:    "CHAIN_OTEL_TRACE_SAMPLE_RATIO",
+			wantReason: "invalid trace sample ratio",
+			sentinel:   "secret-ratio-value-51b4369d",
+		},
 	}
 
 	for _, test := range tests {
@@ -201,13 +232,14 @@ func TestLoadEnablesTelemetryWithTrimmedConfiguration(t *testing.T) {
 	t.Parallel()
 
 	config, err := Load(mapLookup(map[string]string{
-		"PORT":                         " 18080 ",
-		"CHAIN_LOG_LEVEL":              " warn ",
-		"CHAIN_SHUTDOWN_TIMEOUT":       " 9s ",
-		"CHAIN_OTEL_ENABLED":           " true ",
-		"OTEL_EXPORTER_OTLP_ENDPOINT":  " http://localhost:4317 ",
-		"CHAIN_GCP_PROJECT_ID":         " attribution-chain-505000 ",
-		"CHAIN_DEPLOYMENT_ENVIRONMENT": " production ",
+		"PORT":                          " 18080 ",
+		"CHAIN_LOG_LEVEL":               " warn ",
+		"CHAIN_SHUTDOWN_TIMEOUT":        " 9s ",
+		"CHAIN_OTEL_ENABLED":            " true ",
+		"CHAIN_OTEL_TRACE_SAMPLE_RATIO": " 0.25 ",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":   " http://localhost:4317 ",
+		"CHAIN_GCP_PROJECT_ID":          " attribution-chain-505000 ",
+		"CHAIN_DEPLOYMENT_ENVIRONMENT":  " production ",
 	}), "test-version")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -227,6 +259,9 @@ func TestLoadEnablesTelemetryWithTrimmedConfiguration(t *testing.T) {
 	if !config.Telemetry.Enabled {
 		t.Fatal("Telemetry.Enabled = false, want true")
 	}
+	if config.Telemetry.TraceSampleRatio != 0.25 {
+		t.Fatalf("Telemetry.TraceSampleRatio = %v, want 0.25", config.Telemetry.TraceSampleRatio)
+	}
 	if config.Telemetry.Endpoint != "http://localhost:4317" {
 		t.Fatalf("Telemetry.Endpoint = %q, want http://localhost:4317", config.Telemetry.Endpoint)
 	}
@@ -235,6 +270,33 @@ func TestLoadEnablesTelemetryWithTrimmedConfiguration(t *testing.T) {
 	}
 	if config.Telemetry.Environment != DeploymentEnvironment("production") {
 		t.Fatalf("Telemetry.Environment = %q, want production", config.Telemetry.Environment)
+	}
+}
+
+func TestLoadAcceptsTraceSampleRatioBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value string
+		want  TraceSampleRatio
+	}{
+		{value: "0", want: 0},
+		{value: "1", want: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.value, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := Load(mapLookup(map[string]string{
+				"CHAIN_OTEL_TRACE_SAMPLE_RATIO": test.value,
+			}), "test-version")
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Telemetry.TraceSampleRatio; got != test.want {
+				t.Fatalf("Telemetry.TraceSampleRatio = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 

@@ -13,7 +13,9 @@ MIGRATIONS_DIR ?= db/migrations
 DBMATE := dbmate --env-file $(ENV_FILE) --migrations-dir $(MIGRATIONS_DIR)
 COMPOSE := docker compose --env-file $(ENV_FILE)
 IMAGE ?= chain-application:local
-SMOKE_CONTAINER := chain-application-smoke
+SMOKE_CONTAINER_PREFIX := chain-application-smoke
+SMOKE_OWNERSHIP_LABEL := org.attribution-chain.container-smoke.owner
+SMOKE_OWNERSHIP_TOKEN ?=
 SMOKE_HOST_PORT := 18080
 SMOKE_HEALTH_URL := http://127.0.0.1:$(SMOKE_HOST_PORT)/healthz
 SMOKE_ATTEMPTS := 30
@@ -44,9 +46,10 @@ fmt:
 	$(GO) fmt ./...
 
 fmt-check:
-	@test -z "$$(gofmt -l .)" || { \
+	@unformatted="$$(git ls-files -z -- '*.go' | xargs -0 gofmt -l --)"; \
+	test -z "$$unformatted" || { \
 		echo "gofmt required for:" >&2; \
-		gofmt -l . >&2; \
+		printf '%s\n' "$$unformatted" >&2; \
 		exit 1; \
 	}
 
@@ -121,16 +124,29 @@ container-build:
 
 container-smoke: container-build
 	@set -eu; \
-	container_id=""; \
+	temporary_directory=""; \
+	ownership_token="$(SMOKE_OWNERSHIP_TOKEN)"; \
+	if [ -z "$$ownership_token" ]; then \
+		temporary_directory="$$(mktemp -d "$${TMPDIR:-/tmp}/chain-application-smoke.XXXXXX")"; \
+		ownership_token="$${temporary_directory##*.}"; \
+	fi; \
+	container_name="$(SMOKE_CONTAINER_PREFIX)-$$ownership_token"; \
 	cleanup() { \
-		if [ -n "$$container_id" ]; then \
-			docker rm -f "$$container_id" >/dev/null 2>&1 || true; \
+		observed_token="$$(docker inspect --format \
+			'{{ index .Config.Labels "$(SMOKE_OWNERSHIP_LABEL)" }}' \
+			"$$container_name" 2>/dev/null || true)"; \
+		if [ "$$observed_token" = "$$ownership_token" ]; then \
+			docker rm -f "$$container_name" >/dev/null 2>&1 || true; \
+		fi; \
+		if [ -n "$$temporary_directory" ]; then \
+			rmdir "$$temporary_directory"; \
 		fi; \
 	}; \
 	trap cleanup EXIT; \
 	trap 'exit 1' HUP INT TERM; \
-	container_id="$$(docker run --rm -d --name $(SMOKE_CONTAINER) \
-		-p 127.0.0.1:$(SMOKE_HOST_PORT):8080 $(IMAGE))"; \
+	docker run --rm -d --name "$$container_name" \
+		--label "$(SMOKE_OWNERSHIP_LABEL)=$$ownership_token" \
+		-p 127.0.0.1:$(SMOKE_HOST_PORT):8080 $(IMAGE) >/dev/null; \
 	attempt=1; \
 	while [ "$$attempt" -le "$(SMOKE_ATTEMPTS)" ]; do \
 		response="$$(curl --fail --silent --show-error \
@@ -144,5 +160,5 @@ container-smoke: container-build
 		sleep "$(SMOKE_RETRY_INTERVAL_SECONDS)"; \
 	done; \
 	echo "container health check failed after $(SMOKE_ATTEMPTS) attempts" >&2; \
-	docker logs "$$container_id" >&2 || true; \
+	docker logs "$$container_name" >&2 || true; \
 	exit 1
