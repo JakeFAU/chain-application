@@ -191,9 +191,13 @@ Pin repository-executed development tools where their supported distribution
 mechanism permits it. Record and check minimum host-tool versions otherwise. A
 `Makefile` or scripts may provide discoverable wrappers, but direct commands
 remain the documented contract and wrappers must not change their meaning.
-Docker Compose and dbmate commands remain unavailable until the bootstrap
-defines and commits their service names, paths, environment contract, database
-image pin, and dbmate strategy. OpenAPI generation uses the committed source
+Docker Compose and dbmate are operational local-only commands. They use the
+ignored `.env.local` file, the `postgres` Compose service, the pinned PostgreSQL
+18.4 image, `db/migrations`, and the `make db-up`, `make db-down`, `make
+db-logs`, `make migrate`, and `make migrate-status` targets. The Compose service
+binds only to loopback and preserves its named volume across `make db-down`;
+there is no routine destructive reset target. They do not create a schema,
+Cloud SQL resource, or live database. OpenAPI generation uses the committed source
 contract and generation configuration; the generator is pinned in `go.mod`.
 `make generate-check` regenerates the binding and fails on an uncommitted diff.
 Update this section in the same change that creates any of these commands.

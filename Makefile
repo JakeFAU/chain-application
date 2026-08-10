@@ -5,9 +5,13 @@ BIN_DIR := $(CURDIR)/bin
 APP := $(BIN_DIR)/chain-api
 STATICCHECK_VERSION := $(shell tr -d '[:space:]' < .staticcheck-version)
 GOVULNCHECK_VERSION := $(shell tr -d '[:space:]' < .govulncheck-version)
+ENV_FILE ?= .env.local
+DBMATE := dbmate --env-file $(ENV_FILE) --migrations-dir db/migrations
+COMPOSE := docker compose --env-file $(ENV_FILE)
 
 .PHONY: setup tools fmt fmt-check vet staticcheck test test-race build vuln \
-	generate generate-check check
+	generate generate-check check db-config db-up db-down db-logs migrate \
+	migrate-status
 
 setup: tools generate
 
@@ -59,3 +63,21 @@ generate-check: generate
 	git diff --exit-code
 
 check: fmt-check vet staticcheck test test-race build vuln generate-check
+
+db-config:
+	@test -f $(ENV_FILE) || { echo "copy .env.example to $(ENV_FILE) and replace local placeholders" >&2; exit 1; }
+
+db-up: db-config
+	$(COMPOSE) up -d --wait postgres
+
+db-down: db-config
+	$(COMPOSE) down
+
+db-logs: db-config
+	$(COMPOSE) logs postgres
+
+migrate: db-config
+	$(DBMATE) up
+
+migrate-status: db-config
+	$(DBMATE) status

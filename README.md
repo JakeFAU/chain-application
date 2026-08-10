@@ -30,11 +30,12 @@ The command writes only ignored repository-local artifacts under `./bin`.
 
 The Make targets are `setup`, `tools`, `fmt`, `fmt-check`, `vet`,
 `staticcheck`, `test`, `test-race`, `build`, `vuln`, `generate`,
-`generate-check`, and `check`.
+`generate-check`, `check`, `db-up`, `db-down`, `db-logs`, `migrate`, and
+`migrate-status`.
 
-All listed targets are operational. Database, Compose, and container commands
-remain unavailable until their defining tasks commit their service and image
-contracts.
+All listed targets are operational. The database targets require Docker 29.4.0
+and dbmate 2.35.0; container build and smoke commands remain unavailable until
+their defining task commits their contracts.
 
 The direct commands behind the wrappers are part of the repository contract:
 
@@ -71,10 +72,42 @@ bounded graceful shutdown. HTTP closes before telemetry flush, and logger
 synchronization is attempted last. Telemetry is disabled by default, so local
 startup does not require an OpenTelemetry Collector.
 
+## Local PostgreSQL and migrations
+
+The database workflow is local-only. Copy the committed template to an ignored
+file and replace its password placeholder with a local-only value:
+
+```bash
+cp .env.example .env.local
+```
+
+`compose.yaml` runs PostgreSQL 18.4 and binds its configurable port only to
+`127.0.0.1`; it is not a live database or a Cloud SQL resource. It persists
+data in the named `postgres-data` Docker volume, mounted at the PostgreSQL 18
+parent data path `/var/lib/postgresql`. `make db-down` stops and removes the
+container and network but deliberately preserves that named volume. There is no
+routine destructive reset target.
+
+Use these commands after creating `.env.local`:
+
+```bash
+make db-up
+make migrate-status
+make migrate
+make db-logs
+make db-down
+```
+
+dbmate 2.35.0 reads `DATABASE_URL` from `.env.local` and uses
+`db/migrations`. No schema, domain table, ledger table, or protocol migration
+exists yet. Relational migrations and deterministic ledger replay are separate
+concerns.
+
 ## Local configuration and acceptance boundaries
 
-Keep local secrets in ignored `.env` or `.env.*` files. A future sanitized
-`.env.example` may be committed; never commit credentials or local state.
+Keep local secrets in ignored `.env` or `.env.*` files. `.env.example` is a
+sanitized, trackable template; never commit `.env.local`, credentials, or local
+state.
 
 Startup configuration is read once at the process boundary. Values are trimmed;
 an absent or empty value uses its default where one exists. Invalid values stop
