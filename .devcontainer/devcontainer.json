@@ -1,0 +1,144 @@
+{
+  "name": "chain-application-go",
+
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "args": {
+      "GCLOUD_VERSION": "577.0.0-0",
+      "DBMATE_VERSION": "v2.35.0"
+    }
+  },
+
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+
+  "init": true,
+  "capAdd": [
+    "SYS_PTRACE"
+  ],
+  "securityOpt": [
+    "seccomp=unconfined"
+  ],
+
+  "containerEnv": {
+    "CLOUDSDK_CONFIG": "/home/vscode/.config/gcloud",
+    "CLOUDSDK_CORE_PROJECT": "attribution-chain-505000",
+    "GOOGLE_CLOUD_PROJECT": "attribution-chain-505000",
+    "GOBIN": "/home/vscode/go/bin",
+    "HISTFILE": "/commandhistory/.bash_history"
+  },
+
+  "remoteEnv": {
+    "PATH": "/home/vscode/.local/bin:/home/vscode/go/bin:${containerEnv:PATH}"
+  },
+
+  "mounts": [
+    "source=chain-application-codex,target=/home/vscode/.codex,type=volume",
+    "source=chain-application-gcloud,target=/home/vscode/.config/gcloud,type=volume",
+    "source=chain-application-gh,target=/home/vscode/.config/gh,type=volume",
+    "source=chain-application-go-mod,target=/home/vscode/go/pkg/mod,type=volume",
+    "source=chain-application-go-build,target=/home/vscode/.cache/go-build,type=volume",
+    "source=chain-application-bash-history,target=/commandhistory,type=volume"
+  ],
+
+  "forwardPorts": [
+    8080
+  ],
+
+  "portsAttributes": {
+    "8080": {
+      "label": "Attribution Chain API",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "dockerDashComposeVersion": "v2",
+      "installDockerBuildx": true
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "go.useLanguageServer": true,
+        "go.toolsManagement.autoUpdate": false,
+        "go.toolsEnvVars": {
+          "GOBIN": "/home/vscode/go/bin"
+        },
+        "go.formatTool": "gofmt",
+        "go.lintTool": "staticcheck",
+        "go.lintOnSave": "package",
+        "go.vetOnSave": "package",
+        "go.testTimeout": "2m",
+
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        },
+        "editor.rulers": [
+          100
+        ],
+
+        "files.eol": "\n",
+        "files.insertFinalNewline": true,
+        "files.trimFinalNewlines": true,
+        "files.trimTrailingWhitespace": true,
+
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.env.linux": {
+          "GOBIN": "/home/vscode/go/bin",
+          "PATH": "/home/vscode/.local/bin:/home/vscode/go/bin:${env:PATH}"
+        },
+
+        "markdown.validate.enabled": true,
+        "yaml.validate": true,
+
+        "files.watcherExclude": {
+          "**/.git/objects/**": true,
+          "**/.git/subtree-cache/**": true,
+          "**/bin/**": true,
+          "**/coverage/**": true
+        }
+      },
+
+      "extensions": [
+        "golang.go",
+        "OpenAI.chatgpt",
+
+        "ms-vscode.makefile-tools",
+        "ms-azuretools.vscode-containers",
+        "GoogleCloudTools.cloudcode",
+
+        "redhat.vscode-yaml",
+        "humao.rest-client",
+        "EditorConfig.EditorConfig",
+        "DavidAnson.vscode-markdownlint",
+
+        "usernamehw.errorlens",
+        "ryanluker.vscode-coverage-gutters",
+
+        "github.vscode-pull-request-github",
+        "eamodio.gitlens",
+
+        "github.copilot",
+        "github.copilot-chat"
+      ]
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "waitFor": "postCreateCommand",
+
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  }
+}
