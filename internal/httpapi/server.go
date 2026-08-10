@@ -20,7 +20,8 @@ func (*Server) GetHealthz(
 	return GetHealthz200JSONResponse{Status: healthStatus}, nil
 }
 
-func NewHandler(server *Server) http.Handler {
+func NewHandler(server *Server, wrap func(http.Handler) http.Handler) http.Handler {
 	router := chi.NewRouter()
-	return HandlerFromMux(NewStrictHandler(server, nil), router)
+	strictHandler := HandlerFromMux(NewStrictHandler(server, nil), router)
+	return wrap(strictHandler)
 }

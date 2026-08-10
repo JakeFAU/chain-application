@@ -14,7 +14,7 @@ func TestHealthzReturnsContractResponse(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 
-	NewHandler(&Server{}).ServeHTTP(recorder, request)
+	NewHandler(&Server{}, identityWrapper).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
@@ -43,4 +43,31 @@ func TestHealthzReturnsContractResponse(t *testing.T) {
 	if value != "ok" {
 		t.Fatalf("status body = %q, want %q", value, "ok")
 	}
+}
+
+func TestNewHandlerAppliesOneOuterWrapper(t *testing.T) {
+	t.Parallel()
+
+	const wrapperHeader = "X-Test-Outer-Wrapper"
+	wrapperCalls := 0
+	handler := NewHandler(&Server{}, func(next http.Handler) http.Handler {
+		wrapperCalls++
+		return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			response.Header().Set(wrapperHeader, "applied")
+			next.ServeHTTP(response, request)
+		})
+	})
+	if wrapperCalls != 1 {
+		t.Fatalf("wrapper construction calls = %d, want 1", wrapperCalls)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if recorder.Header().Get(wrapperHeader) != "applied" {
+		t.Fatal("outer wrapper did not observe the request")
+	}
+}
+
+func identityWrapper(handler http.Handler) http.Handler {
+	return handler
 }
