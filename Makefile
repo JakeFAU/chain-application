@@ -15,7 +15,10 @@ COMPOSE := docker compose --env-file $(ENV_FILE)
 IMAGE ?= chain-application:local
 SMOKE_CONTAINER := chain-application-smoke
 SMOKE_HOST_PORT := 18080
+SMOKE_HEALTH_URL := http://127.0.0.1:$(SMOKE_HOST_PORT)/healthz
 SMOKE_ATTEMPTS := 30
+SMOKE_REQUEST_TIMEOUT_SECONDS := 2
+SMOKE_RETRY_INTERVAL_SECONDS := 1
 SMOKE_RESPONSE := {"status":"ok"}
 
 .PHONY: setup tools fmt fmt-check vet staticcheck test test-race build vuln \
@@ -131,13 +134,14 @@ container-smoke: container-build
 	attempt=1; \
 	while [ "$$attempt" -le "$(SMOKE_ATTEMPTS)" ]; do \
 		response="$$(curl --fail --silent --show-error \
-			"http://127.0.0.1:$(SMOKE_HOST_PORT)/healthz" 2>/dev/null || true)"; \
+			--max-time "$(SMOKE_REQUEST_TIMEOUT_SECONDS)" \
+			"$(SMOKE_HEALTH_URL)" 2>/dev/null || true)"; \
 		if [ "$$response" = '$(SMOKE_RESPONSE)' ]; then \
 			echo "container health response: $$response"; \
 			exit 0; \
 		fi; \
 		attempt=$$((attempt + 1)); \
-		sleep 1; \
+		sleep "$(SMOKE_RETRY_INTERVAL_SECONDS)"; \
 	done; \
 	echo "container health check failed after $(SMOKE_ATTEMPTS) attempts" >&2; \
 	docker logs "$$container_id" >&2 || true; \

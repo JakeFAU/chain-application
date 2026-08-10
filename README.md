@@ -59,7 +59,7 @@ Every listed target is operational:
 | `make migrate` | Applies dbmate migrations, or reports a successful no-op while no migration SQL exists; requires dbmate and the local database. |
 | `make migrate-status` | Reads dbmate migration status; requires dbmate and the local database. |
 | `make container-build` | Builds the pinned static, non-root image; requires Docker and may need network access for uncached bases or modules. |
-| `make container-smoke` | Builds and runs the image on `127.0.0.1:18080`, polls the exact health contract with bounded retries, and always removes its container. |
+| `make container-smoke` | Builds and runs the image on `127.0.0.1:18080`, polls the exact health contract with bounded retries and a per-request deadline, and always removes its container. |
 
 The direct core commands behind the wrappers are also part of the repository
 contract:

@@ -221,12 +221,12 @@ source is not rewritten.
 The pinned multi-stage container builds a CGO-disabled, trim-path binary and
 copies only that binary into a digest-pinned distroless runtime running as
 `nonroot:nonroot`. `make container-smoke` binds only to
-`127.0.0.1:18080`, polls the exact health JSON with bounded retries, and removes
-its own container on every exit path. Credential-free GitHub Actions runs the
-core check, Compose validation, and a container build with immutable action
-pins and `contents: read`; it does not use secrets, authenticate to GCP, push,
-deploy, or provision. Hosted CI and live Cloud Run/GCP acceptance remain
-separate, unverified authorization gates.
+`127.0.0.1:18080`, polls the exact health JSON with bounded retries and a named
+per-request deadline, and removes its own container on every exit path.
+Credential-free GitHub Actions runs the core check, Compose validation, and a
+container build with immutable action pins and `contents: read`; it does not
+use secrets, authenticate to GCP, push, deploy, or provision. Hosted CI and
+live Cloud Run/GCP acceptance remain separate, unverified authorization gates.
 
 ## Go Design Rules
 
