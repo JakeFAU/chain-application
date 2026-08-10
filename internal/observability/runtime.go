@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	cloudpropagator "github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator"
@@ -33,7 +35,7 @@ const (
 	unknownHTTPMethod         = "OTHER"
 	endpointSchemeHTTP        = "http"
 	endpointSchemeHTTPS       = "https"
-	cloudTraceContextHeader   = "X-Cloud-Trace-Context"
+	cloudTraceContextHeader   = cloudpropagator.TraceContextHeaderName
 	invalidEndpointReason     = "invalid OTLP endpoint"
 	insecureEndpointReason    = "insecure OTLP endpoint requires a loopback host"
 	originalRequestContextKey = runtimeContextKey(0)
@@ -41,12 +43,26 @@ const (
 
 type runtimeContextKey uint8
 
+var cloudTraceContextPattern = regexp.MustCompile(`^[0-9a-f]{32}/[0-9]{1,20}(;o=[0-9])?$`)
+
 // Option configures process-owned observability adapters.
 type Option func(*options)
 
 type options struct {
-	logSink zapcore.WriteSyncer
+	logSink               zapcore.WriteSyncer
+	traceExporterFactory  traceExporterFactory
+	metricExporterFactory metricExporterFactory
 }
+
+type traceExporterFactory func(
+	context.Context,
+	...otlptracegrpc.Option,
+) (sdktrace.SpanExporter, error)
+
+type metricExporterFactory func(
+	context.Context,
+	...otlpmetricgrpc.Option,
+) (sdkmetric.Exporter, error)
 
 // WithLogSink replaces stdout as the application log sink.
 func WithLogSink(sink zapcore.WriteSyncer) Option {
@@ -66,7 +82,7 @@ type Runtime struct {
 
 // New constructs the application logging and telemetry runtime.
 func New(ctx context.Context, cfg config.Config, runtimeOptions ...Option) (*Runtime, error) {
-	configuredOptions := options{}
+	configuredOptions := defaultOptions()
 	for _, option := range runtimeOptions {
 		option(&configuredOptions)
 	}
@@ -76,7 +92,11 @@ func New(ctx context.Context, cfg config.Config, runtimeOptions ...Option) (*Run
 		return nil, fmt.Errorf("create logger: %w", err)
 	}
 
-	tracerProvider, meterProvider, propagator, shutdown, err := newTelemetry(ctx, cfg.Telemetry)
+	tracerProvider, meterProvider, propagator, shutdown, err := newTelemetry(
+		ctx,
+		cfg.Telemetry,
+		configuredOptions,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create telemetry: %w", err)
 	}
@@ -135,6 +155,7 @@ func (runtime Runtime) Shutdown(ctx context.Context) error {
 func newTelemetry(
 	ctx context.Context,
 	cfg config.Telemetry,
+	configuredOptions options,
 ) (trace.TracerProvider, metric.MeterProvider, propagation.TextMapPropagator, func(context.Context) error, error) {
 	propagator := newPropagator()
 	if !cfg.Enabled {
@@ -158,12 +179,12 @@ func newTelemetry(
 		metricOptions = append(metricOptions, otlpmetricgrpc.WithInsecure())
 	}
 
-	traceExporter, err := otlptracegrpc.New(ctx, traceOptions...)
+	traceExporter, err := configuredOptions.traceExporterFactory(ctx, traceOptions...)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("create trace exporter: %w", err)
 	}
 
-	metricExporter, err := otlpmetricgrpc.New(ctx, metricOptions...)
+	metricExporter, err := configuredOptions.metricExporterFactory(ctx, metricOptions...)
 	if err != nil {
 		return nil, nil, nil, nil, errors.Join(
 			fmt.Errorf("create metric exporter: %w", err),
@@ -181,13 +202,52 @@ func newTelemetry(
 	)
 
 	shutdown := func(ctx context.Context) error {
-		return errors.Join(
-			meterProvider.Shutdown(ctx),
-			tracerProvider.Shutdown(ctx),
+		return shutdownProviders(
+			ctx,
+			meterProvider.Shutdown,
+			tracerProvider.Shutdown,
 		)
 	}
 
 	return tracerProvider, meterProvider, propagator, shutdown, nil
+}
+
+func defaultOptions() options {
+	return options{
+		traceExporterFactory: func(
+			ctx context.Context,
+			exporterOptions ...otlptracegrpc.Option,
+		) (sdktrace.SpanExporter, error) {
+			return otlptracegrpc.New(ctx, exporterOptions...)
+		},
+		metricExporterFactory: func(
+			ctx context.Context,
+			exporterOptions ...otlpmetricgrpc.Option,
+		) (sdkmetric.Exporter, error) {
+			return otlpmetricgrpc.New(ctx, exporterOptions...)
+		},
+	}
+}
+
+func shutdownProviders(ctx context.Context, shutdowns ...func(context.Context) error) error {
+	type shutdownResult struct {
+		index int
+		err   error
+	}
+
+	results := make(chan shutdownResult, len(shutdowns))
+	for index, shutdown := range shutdowns {
+		go func() {
+			results <- shutdownResult{index: index, err: shutdown(ctx)}
+		}()
+	}
+
+	errs := make([]error, len(shutdowns))
+	for range shutdowns {
+		result := <-results
+		errs[result.index] = result.err
+	}
+	return errors.Join(errs...)
 }
 
 func newResource(cfg config.Telemetry) (*resource.Resource, error) {
@@ -251,14 +311,32 @@ func telemetryRequest(
 			telemetryRequest.Header.Add(field, value)
 		}
 	}
-	if len(telemetryRequest.Header.Values(cloudTraceContextHeader)) == 0 {
-		for _, value := range request.Header.Values(cloudTraceContextHeader) {
-			telemetryRequest.Header.Add(cloudTraceContextHeader, value)
-		}
+	cloudTraceContext := request.Header.Get(cloudTraceContextHeader)
+	if validCloudTraceContext(cloudTraceContext) {
+		telemetryRequest.Header.Set(cloudTraceContextHeader, cloudTraceContext)
 	}
 	telemetryRequest.Body = http.NoBody
 	telemetryRequest.ContentLength = 0
 	return telemetryRequest
+}
+
+func validCloudTraceContext(header string) bool {
+	if !cloudTraceContextPattern.MatchString(header) {
+		return false
+	}
+
+	separator := strings.IndexByte(header, '/')
+	traceID, err := trace.TraceIDFromHex(header[:separator])
+	if err != nil || !traceID.IsValid() {
+		return false
+	}
+
+	spanID := header[separator+1:]
+	if options := strings.IndexByte(spanID, ';'); options >= 0 {
+		spanID = spanID[:options]
+	}
+	parsedSpanID, err := strconv.ParseUint(spanID, 10, 64)
+	return err == nil && parsedSpanID != 0
 }
 
 func boundedHTTPMethod(method string) string {
