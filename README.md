@@ -57,6 +57,20 @@ go build ./...
 Keep local secrets in ignored `.env` or `.env.*` files. A future sanitized
 `.env.example` may be committed; never commit credentials or local state.
 
+Startup configuration is read once at the process boundary. Values are trimmed;
+an absent or empty value uses its default where one exists. Invalid values stop
+startup before the application accepts traffic.
+
+| Variable | Default | Validation |
+| --- | --- | --- |
+| `PORT` | `8080` | Base-10 integer from `1` through `65535`. |
+| `CHAIN_LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, or `error`. |
+| `CHAIN_SHUTDOWN_TIMEOUT` | `8s` | Go duration greater than `1s` and at most `9s`. |
+| `CHAIN_OTEL_ENABLED` | `false` | Go boolean accepted by `strconv.ParseBool`. When true, `OTEL_EXPORTER_OTLP_ENDPOINT` is required. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Required when `CHAIN_OTEL_ENABLED` is true. |
+| `CHAIN_GCP_PROJECT_ID` | none | Required when `CHAIN_DEPLOYMENT_ENVIRONMENT` is `production`. |
+| `CHAIN_DEPLOYMENT_ENVIRONMENT` | `local` | One of `local`, `development`, or `production`. |
+
 Local command results establish only local tool or code behavior. PostgreSQL,
 container, hosted-CI, and GCP acceptance are separate boundaries and require
 their respective commands or authorization. This repository has no remote or
