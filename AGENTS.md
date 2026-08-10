@@ -12,16 +12,18 @@ service.
 
 ## Current Status and Scope
 
-As of 2026-08-09, this directory contains only this file. It is not yet a Git
-repository and has no Go module, source, tests, generated code, database schema,
-local services, build, CI, deployment, or application artifact. Creating this
-file does not authorize the broader scaffold.
+As of 2026-08-10, this initialized repository contains the approved application
+foundation: a Go module, one OpenAPI-defined health endpoint, typed startup
+configuration, Zap and OpenTelemetry lifecycle, local PostgreSQL/dbmate tooling,
+a static non-root container, and credential-free CI. It contains no domain or
+ledger behavior, application database schema, deployment, or live cloud
+acceptance.
 
-After its separately approved bootstrap, this repository will own the Go 1.26+
-application: authoritative domain policy, the HTTP API implementation, ledger
-admission and replay behavior, and application-owned projections. It does not
-own thin generated clients, frontend behavior, permanent GCP infrastructure,
-or infrastructure deployment logic.
+This repository owns the Go 1.26+ application: authoritative domain policy, the
+HTTP API implementation, ledger admission and replay behavior, and
+application-owned projections when separately designed and approved. It does
+not own thin generated clients, frontend behavior, permanent GCP
+infrastructure, or infrastructure deployment logic.
 
 Cloud Run is the eventual default runtime and local PostgreSQL is the initial
 database. No Cloud Run service, Cloud SQL instance, application service
@@ -125,7 +127,7 @@ or deployment acceptance. Evidence from one layer is not evidence for another.
 
 ## Prerequisites and Command Status
 
-The local baseline verified for this bootstrap request is:
+The local baseline verified for this foundation is:
 
 ```text
 Go:              1.26.5 (darwin/arm64)
@@ -135,7 +137,7 @@ Staticcheck:      2026.1 (v0.7.0)
 govulncheck:      1.6.0
 ```
 
-Go 1.26 or newer, dbmate, and Docker are required. The bootstrap must record Go
+Go 1.26 or newer, dbmate, and Docker are required. The repository records Go
 1.26.5 in `go.mod` and CI; upgrades are intentional compatibility changes.
 
 Pin Staticcheck in a committed `.staticcheck-version` and govulncheck in a
@@ -146,12 +148,17 @@ checks.
 
 `make tools` installs the repository-pinned Staticcheck and govulncheck
 binaries under ignored `./bin`. `make fmt`, `make fmt-check`, `make vet`,
-`make staticcheck`, `make test`, `make test-race`, `make generate`, and
-`make generate-check`, `make build`, and `make check` are now operational. Do
-not report commands as passing before they have been run and their output has
-been checked.
+`make staticcheck`, `make test`, `make test-race`, `make generate`,
+`make generate-check`, `make build`, `make check`, `make db-config`, the
+database targets, `make container-build`, and `make container-smoke` are
+operational. `make fmt` and `make generate` intentionally rewrite source;
+`make check` does not rewrite tracked source. Container and database targets
+require Docker, migration targets require dbmate and the local database, and
+container smoke also requires `curl`. Tool installation and vulnerability
+database access may require network access. Do not report any command as
+passing before it has been run and its output checked.
 
-The only currently meaningful prerequisite checks are:
+The key version checks are:
 
 ```bash
 go version
@@ -159,8 +166,8 @@ dbmate --version
 docker --version
 ```
 
-The following direct application commands are the future command contract and
-must be documented in the README. Any intentional replacement requires an
+The following direct application commands are the current command contract and
+must remain documented in the README. Any intentional replacement requires an
 update to both documents:
 
 ```bash
@@ -172,10 +179,11 @@ go test ./...
 go test -race ./...
 go build ./...
 ./bin/govulncheck ./...
+go generate ./...
 ```
 
-Install the pinned tools from their official Go modules; the bootstrap may wrap
-these commands without changing them:
+Install the pinned tools from their official Go modules; repository wrappers
+must not change these commands' meaning:
 
 ```bash
 STATICCHECK_VERSION="$(tr -d '[:space:]' < .staticcheck-version)"
@@ -194,16 +202,31 @@ remain the documented contract and wrappers must not change their meaning.
 Docker Compose and dbmate are operational local-only commands. They use the
 ignored `.env.local` file, the `postgres` Compose service, the pinned PostgreSQL
 18.4 image, `db/migrations`, and the `make db-up`, `make db-down`, `make
-db-logs`, `make migrate`, and `make migrate-status` targets. The Compose service
-binds only to loopback and preserves its named volume across `make db-down`;
-there is no routine destructive reset target. `make migrate` is an explicit
-successful no-op while `db/migrations` has no dbmate `.sql` files; once schema
-work adds one, it invokes dbmate and preserves its result. These commands do not
-create a schema, Cloud SQL resource, or live database. OpenAPI generation uses
-the committed source contract and generation configuration; the generator is
-pinned in `go.mod`.
-`make generate-check` regenerates the binding and fails on an uncommitted diff.
-Update this section in the same change that creates any of these commands.
+db-logs`, `make migrate`, and `make migrate-status` targets. `make db-config` is
+their shared public prerequisite check. The Compose service binds only to
+loopback and preserves its named volume across `make db-down`; there is no
+routine destructive reset target. `POSTGRES_PASSWORD` and the password in
+`DATABASE_URL` must match, with URI-reserved password characters percent-
+encoded in the URL. `make migrate` is an explicit successful no-op while
+`db/migrations` has no dbmate `.sql` files; once schema work adds one, it invokes
+dbmate and preserves its result. These commands do not create a schema, Cloud
+SQL resource, or live database.
+
+OpenAPI generation uses the committed source contract and generation
+configuration; the generator is pinned in `go.mod`. `make generate-check`
+generates into a temporary file and compares only the committed generated
+binding, so unrelated working-tree edits do not fail the check and tracked
+source is not rewritten.
+
+The pinned multi-stage container builds a CGO-disabled, trim-path binary and
+copies only that binary into a digest-pinned distroless runtime running as
+`nonroot:nonroot`. `make container-smoke` binds only to
+`127.0.0.1:18080`, polls the exact health JSON with bounded retries, and removes
+its own container on every exit path. Credential-free GitHub Actions runs the
+core check, Compose validation, and a container build with immutable action
+pins and `contents: read`; it does not use secrets, authenticate to GCP, push,
+deploy, or provision. Hosted CI and live Cloud Run/GCP acceptance remain
+separate, unverified authorization gates.
 
 ## Go Design Rules
 
@@ -712,10 +735,10 @@ v5 is the default HTTP router, and Zap is the sole application logger.
 
 ## Git and Generated Files
 
-After this file is accepted, repository initialization may be proposed as part
-of the approved bootstrap: initialize an independent repository with default
-branch `main`. Do not create or guess a GitHub remote; ask for the repository
-URL and stable numeric repository ID when a remote is actually required.
+This is an independent initialized repository whose local default branch is
+`main`; the foundation work is isolated on its own branch. It has no GitHub
+remote. Do not create or guess one; ask for the repository URL and stable
+numeric repository ID when a remote is actually required.
 
 Keep commits small and coherent, preserve unrelated user work, and do not
 rewrite history or force-push without explicit authorization. Commit source
@@ -748,8 +771,7 @@ Present a recommendation and trade-offs before implementing decisions about:
 - a proposed exception to the TDD, crypto-testing, or deterministic-replay
   rules for production behavior.
 
-For this bootstrap, acceptance of this file and approval of the next slice must
-precede repository initialization or scaffolding. Remote creation,
+The foundation bootstrap is implemented locally. Remote creation,
 infrastructure plan/apply, deployment, and live acceptance remain separate
-authorization gates. After bootstrap, ordinary implementation already in an
-approved request does not require an extra ceremonial gate.
+authorization gates. Ordinary implementation already in an approved request
+does not require an extra ceremonial gate.

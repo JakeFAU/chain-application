@@ -5,14 +5,22 @@ BIN_DIR := $(CURDIR)/bin
 APP := $(BIN_DIR)/chain-api
 STATICCHECK_VERSION := $(shell tr -d '[:space:]' < .staticcheck-version)
 GOVULNCHECK_VERSION := $(shell tr -d '[:space:]' < .govulncheck-version)
+GENERATED_OPENAPI := internal/httpapi/openapi.gen.go
+OPENAPI_CONFIG := internal/httpapi/oapi-codegen.yaml
+OPENAPI_SPEC := api/openapi.yaml
 ENV_FILE ?= .env.local
 MIGRATIONS_DIR ?= db/migrations
 DBMATE := dbmate --env-file $(ENV_FILE) --migrations-dir $(MIGRATIONS_DIR)
 COMPOSE := docker compose --env-file $(ENV_FILE)
+IMAGE ?= chain-application:local
+SMOKE_CONTAINER := chain-application-smoke
+SMOKE_HOST_PORT := 18080
+SMOKE_ATTEMPTS := 30
+SMOKE_RESPONSE := {"status":"ok"}
 
 .PHONY: setup tools fmt fmt-check vet staticcheck test test-race build vuln \
 	generate generate-check check db-config db-up db-down db-logs migrate \
-	migrate-status
+	migrate-status container-build container-smoke
 
 setup: tools generate
 
@@ -60,8 +68,23 @@ vuln: $(BIN_DIR)/govulncheck
 generate:
 	$(GO) generate ./...
 
-generate-check: generate
-	git diff --exit-code
+generate-check:
+	@temporary_directory="$$(mktemp -d)"; \
+	temporary_output="$$temporary_directory/openapi.gen.go"; \
+	cleanup() { \
+		rm -f "$$temporary_output"; \
+		rmdir "$$temporary_directory"; \
+	}; \
+	trap cleanup EXIT; \
+	trap 'exit 1' HUP INT TERM; \
+	generator="$$( $(GO) tool -n oapi-codegen )"; \
+	(cd "$$temporary_directory" && "$$generator" \
+		-config "$(CURDIR)/$(OPENAPI_CONFIG)" "$(CURDIR)/$(OPENAPI_SPEC)"); \
+	if ! cmp -s $(GENERATED_OPENAPI) "$$temporary_output"; then \
+		echo "$(GENERATED_OPENAPI) is out of date; run make generate" >&2; \
+		diff -u $(GENERATED_OPENAPI) "$$temporary_output" >&2 || true; \
+		exit 1; \
+	fi
 
 check: fmt-check vet staticcheck test test-race build vuln generate-check
 
@@ -89,3 +112,33 @@ migrate: db-config
 
 migrate-status: db-config
 	$(DBMATE) status
+
+container-build:
+	docker build --build-arg BUILD_VERSION=$$(git rev-parse --short HEAD 2>/dev/null || echo devel) -t $(IMAGE) .
+
+container-smoke: container-build
+	@set -eu; \
+	container_id=""; \
+	cleanup() { \
+		if [ -n "$$container_id" ]; then \
+			docker rm -f "$$container_id" >/dev/null 2>&1 || true; \
+		fi; \
+	}; \
+	trap cleanup EXIT; \
+	trap 'exit 1' HUP INT TERM; \
+	container_id="$$(docker run --rm -d --name $(SMOKE_CONTAINER) \
+		-p 127.0.0.1:$(SMOKE_HOST_PORT):8080 $(IMAGE))"; \
+	attempt=1; \
+	while [ "$$attempt" -le "$(SMOKE_ATTEMPTS)" ]; do \
+		response="$$(curl --fail --silent --show-error \
+			"http://127.0.0.1:$(SMOKE_HOST_PORT)/healthz" 2>/dev/null || true)"; \
+		if [ "$$response" = '$(SMOKE_RESPONSE)' ]; then \
+			echo "container health response: $$response"; \
+			exit 0; \
+		fi; \
+		attempt=$$((attempt + 1)); \
+		sleep 1; \
+	done; \
+	echo "container health check failed after $(SMOKE_ATTEMPTS) attempts" >&2; \
+	docker logs "$$container_id" >&2 || true; \
+	exit 1
