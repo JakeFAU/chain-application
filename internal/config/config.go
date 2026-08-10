@@ -29,6 +29,10 @@ const (
 
 	minimumShutdownTimeout = time.Second
 	maximumShutdownTimeout = 9 * time.Second
+
+	invalidPortReason     = "invalid port"
+	invalidBooleanReason  = "invalid boolean"
+	invalidDurationReason = "invalid duration"
 )
 
 // LookupEnv reads one environment variable at the startup boundary.
@@ -110,7 +114,7 @@ func loadPort(lookup LookupEnv) (uint16, error) {
 	value := lookupOrDefault(lookup, environmentPort, defaultPort)
 	port, err := strconv.ParseUint(value, 10, 16)
 	if err != nil {
-		return 0, fmt.Errorf("%s: parse port: %w", environmentPort, err)
+		return 0, fmt.Errorf("%s: %s", environmentPort, invalidPortReason)
 	}
 	if port < minimumPort || port > maximumPort {
 		return 0, fmt.Errorf("%s must be between %d and %d", environmentPort, minimumPort, maximumPort)
@@ -133,7 +137,7 @@ func loadShutdownTimeout(lookup LookupEnv) (time.Duration, error) {
 	value := lookupOrDefault(lookup, environmentShutdownTimeout, defaultShutdownTimeout)
 	timeout, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, fmt.Errorf("%s: parse duration: %w", environmentShutdownTimeout, err)
+		return 0, fmt.Errorf("%s: %s", environmentShutdownTimeout, invalidDurationReason)
 	}
 	if timeout <= minimumShutdownTimeout || timeout > maximumShutdownTimeout {
 		return 0, fmt.Errorf(
@@ -150,7 +154,7 @@ func loadShutdownTimeout(lookup LookupEnv) (time.Duration, error) {
 func loadTelemetry(lookup LookupEnv, buildVersion string) (Telemetry, error) {
 	enabled, err := strconv.ParseBool(lookupOrDefault(lookup, environmentTelemetryEnabled, defaultTelemetryEnabled))
 	if err != nil {
-		return Telemetry{}, fmt.Errorf("%s: parse boolean: %w", environmentTelemetryEnabled, err)
+		return Telemetry{}, fmt.Errorf("%s: %s", environmentTelemetryEnabled, invalidBooleanReason)
 	}
 
 	environment, err := loadDeploymentEnvironment(lookup)

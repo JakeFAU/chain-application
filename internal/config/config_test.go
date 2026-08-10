@@ -143,6 +143,60 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestLoadParseErrorsDoNotExposeInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		values     map[string]string
+		wantEnv    string
+		wantReason string
+		sentinel   string
+	}{
+		{
+			name:       "port",
+			values:     map[string]string{"PORT": "secret-port-value-5f3f95b3"},
+			wantEnv:    "PORT",
+			wantReason: "invalid port",
+			sentinel:   "secret-port-value-5f3f95b3",
+		},
+		{
+			name:       "telemetry boolean",
+			values:     map[string]string{"CHAIN_OTEL_ENABLED": "secret-boolean-value-093f70dd"},
+			wantEnv:    "CHAIN_OTEL_ENABLED",
+			wantReason: "invalid boolean",
+			sentinel:   "secret-boolean-value-093f70dd",
+		},
+		{
+			name:       "shutdown timeout",
+			values:     map[string]string{"CHAIN_SHUTDOWN_TIMEOUT": "secret-duration-value-1ae269d6"},
+			wantEnv:    "CHAIN_SHUTDOWN_TIMEOUT",
+			wantReason: "invalid duration",
+			sentinel:   "secret-duration-value-1ae269d6",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := Load(mapLookup(test.values), "test-version")
+			if err == nil {
+				t.Fatal("Load error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), test.wantEnv) {
+				t.Fatalf("Load error = %q, want environment variable %q", err, test.wantEnv)
+			}
+			if strings.Contains(err.Error(), test.sentinel) {
+				t.Fatalf("Load error = %q, must not expose supplied value", err)
+			}
+			if !strings.Contains(err.Error(), test.wantReason) {
+				t.Fatalf("Load error = %q, want reason %q", err, test.wantReason)
+			}
+		})
+	}
+}
+
 func TestLoadEnablesTelemetryWithTrimmedConfiguration(t *testing.T) {
 	t.Parallel()
 
