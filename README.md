@@ -99,9 +99,11 @@ make db-down
 ```
 
 dbmate 2.35.0 reads `DATABASE_URL` from `.env.local` and uses
-`db/migrations`. No schema, domain table, ledger table, or protocol migration
-exists yet. Relational migrations and deterministic ledger replay are separate
-concerns.
+`db/migrations`. With no dbmate `.sql` files, `make migrate` succeeds with a
+clear no-op message; after an approved schema task adds a migration, it invokes
+dbmate and preserves any migration failure. No schema, domain table, ledger
+table, or protocol migration exists yet. Relational migrations and deterministic
+ledger replay are separate concerns.
 
 ## Local configuration and acceptance boundaries
 

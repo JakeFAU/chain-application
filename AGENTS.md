@@ -196,9 +196,12 @@ ignored `.env.local` file, the `postgres` Compose service, the pinned PostgreSQL
 18.4 image, `db/migrations`, and the `make db-up`, `make db-down`, `make
 db-logs`, `make migrate`, and `make migrate-status` targets. The Compose service
 binds only to loopback and preserves its named volume across `make db-down`;
-there is no routine destructive reset target. They do not create a schema,
-Cloud SQL resource, or live database. OpenAPI generation uses the committed source
-contract and generation configuration; the generator is pinned in `go.mod`.
+there is no routine destructive reset target. `make migrate` is an explicit
+successful no-op while `db/migrations` has no dbmate `.sql` files; once schema
+work adds one, it invokes dbmate and preserves its result. These commands do not
+create a schema, Cloud SQL resource, or live database. OpenAPI generation uses
+the committed source contract and generation configuration; the generator is
+pinned in `go.mod`.
 `make generate-check` regenerates the binding and fails on an uncommitted diff.
 Update this section in the same change that creates any of these commands.
 

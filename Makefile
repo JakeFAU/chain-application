@@ -6,7 +6,8 @@ APP := $(BIN_DIR)/chain-api
 STATICCHECK_VERSION := $(shell tr -d '[:space:]' < .staticcheck-version)
 GOVULNCHECK_VERSION := $(shell tr -d '[:space:]' < .govulncheck-version)
 ENV_FILE ?= .env.local
-DBMATE := dbmate --env-file $(ENV_FILE) --migrations-dir db/migrations
+MIGRATIONS_DIR ?= db/migrations
+DBMATE := dbmate --env-file $(ENV_FILE) --migrations-dir $(MIGRATIONS_DIR)
 COMPOSE := docker compose --env-file $(ENV_FILE)
 
 .PHONY: setup tools fmt fmt-check vet staticcheck test test-race build vuln \
@@ -77,7 +78,14 @@ db-logs: db-config
 	$(COMPOSE) logs postgres
 
 migrate: db-config
-	$(DBMATE) up
+	@if [ ! -d "$(MIGRATIONS_DIR)" ]; then \
+		echo "migration directory does not exist: $(MIGRATIONS_DIR)" >&2; \
+		exit 1; \
+	elif [ -z "$$(find "$(MIGRATIONS_DIR)" -type f -name '*.sql' -print -quit)" ]; then \
+		echo "no dbmate migration files in $(MIGRATIONS_DIR); nothing to apply"; \
+	else \
+		$(DBMATE) up; \
+	fi
 
 migrate-status: db-config
 	$(DBMATE) status
