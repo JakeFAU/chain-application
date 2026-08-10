@@ -144,9 +144,12 @@ versions rather than ambient installations or `latest`. Upgrade either tool
 intentionally after reviewing its release notes and running the full repository
 checks.
 
-No setup, formatting, linting, test, build, migration, OpenAPI-generation, or
-local-service command exists yet because the files those commands require do
-not exist. Do not report any such command as passing before bootstrap.
+`make tools` is now operational and installs the repository-pinned
+Staticcheck and govulncheck binaries under ignored `./bin`. The application
+formatting, linting, test, build, vulnerability-scan, and generation targets
+exist as a command contract, but remain unavailable until their source,
+generated-contract, and runtime inputs land in later foundation tasks. Do not
+report those commands as passing before their creating tasks land.
 
 The only currently meaningful prerequisite checks are:
 
@@ -156,8 +159,9 @@ dbmate --version
 docker --version
 ```
 
-The next approved foundation slice must make these application commands work
-and document any intentional replacement in the README and this file:
+The following direct application commands are the future command contract and
+must be documented in the README. Any intentional replacement requires an
+update to both documents:
 
 ```bash
 go mod download
@@ -187,10 +191,12 @@ Pin repository-executed development tools where their supported distribution
 mechanism permits it. Record and check minimum host-tool versions otherwise. A
 `Makefile` or scripts may provide discoverable wrappers, but direct commands
 remain the documented contract and wrappers must not change their meaning.
-Docker Compose, dbmate, and OpenAPI-generation commands remain unavailable
-until the bootstrap defines and commits their service names, paths, environment
-contract, database image pin, dbmate strategy, and pinned generator; update
-this section in the same change that creates them.
+Docker Compose and dbmate commands remain unavailable until the bootstrap
+defines and commits their service names, paths, environment contract, database
+image pin, and dbmate strategy. OpenAPI generation remains unavailable until
+its source contract and generation configuration land; the generator itself is
+pinned in `go.mod`. Update this section in the same change that creates any of
+these commands.
 
 ## Go Design Rules
 
