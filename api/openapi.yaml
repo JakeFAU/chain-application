@@ -17,6 +17,7 @@ components:
   schemas:
     HealthzResponse:
       type: object
+      additionalProperties: false
       required: [status]
       properties:
         status:
