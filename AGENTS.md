@@ -144,12 +144,12 @@ versions rather than ambient installations or `latest`. Upgrade either tool
 intentionally after reviewing its release notes and running the full repository
 checks.
 
-`make tools` is now operational and installs the repository-pinned
-Staticcheck and govulncheck binaries under ignored `./bin`. The application
-formatting, linting, test, build, vulnerability-scan, and generation targets
-exist as a command contract, but remain unavailable until their source,
-generated-contract, and runtime inputs land in later foundation tasks. Do not
-report those commands as passing before their creating tasks land.
+`make tools` installs the repository-pinned Staticcheck and govulncheck
+binaries under ignored `./bin`. `make fmt`, `make fmt-check`, `make vet`,
+`make staticcheck`, `make test`, `make test-race`, `make generate`, and
+`make generate-check` are now operational. `make build` remains unavailable
+until Task 5 adds the application composition root, so `make check` is also
+unavailable. Do not report commands as passing before their creating tasks land.
 
 The only currently meaningful prerequisite checks are:
 
@@ -193,10 +193,10 @@ mechanism permits it. Record and check minimum host-tool versions otherwise. A
 remain the documented contract and wrappers must not change their meaning.
 Docker Compose and dbmate commands remain unavailable until the bootstrap
 defines and commits their service names, paths, environment contract, database
-image pin, and dbmate strategy. OpenAPI generation remains unavailable until
-its source contract and generation configuration land; the generator itself is
-pinned in `go.mod`. Update this section in the same change that creates any of
-these commands.
+image pin, and dbmate strategy. OpenAPI generation uses the committed source
+contract and generation configuration; the generator is pinned in `go.mod`.
+`make generate-check` regenerates the binding and fails on an uncommitted diff.
+Update this section in the same change that creates any of these commands.
 
 ## Go Design Rules
 

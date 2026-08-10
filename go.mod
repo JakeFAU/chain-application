@@ -4,6 +4,8 @@ go 1.26.5
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 
+require github.com/go-chi/chi/v5 v5.3.1
+
 require (
 	github.com/dprotaso/go-yit v0.0.0-20220510233725-9ba8df137936 // indirect
 	github.com/getkin/kin-openapi v0.142.0 // indirect

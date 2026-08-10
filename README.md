@@ -32,11 +32,12 @@ The Make targets are `setup`, `tools`, `fmt`, `fmt-check`, `vet`,
 `staticcheck`, `test`, `test-race`, `build`, `vuln`, `generate`,
 `generate-check`, and `check`.
 
-`make tools` is operational in this first foundation slice. The application
-targets become operational as Tasks 2–7 add their source packages, generated
-contract, and runtime artifacts. In particular, do not run `make check` before
-those inputs exist. Database, Compose, and container commands remain
-unavailable until their defining tasks commit their service and image contracts.
+`make tools`, `make fmt`, `make fmt-check`, `make vet`, `make staticcheck`,
+`make test`, `make test-race`, `make generate`, and `make generate-check` are
+operational. `make build` remains unavailable until Task 5 adds the application
+composition root, so `make check` is also unavailable. Database, Compose, and
+container commands remain unavailable until their defining tasks commit their
+service and image contracts.
 
 The direct commands behind the wrappers are part of the repository contract:
 
