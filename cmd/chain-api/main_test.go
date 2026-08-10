@@ -2,13 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
+
+const ambientSamplerHelperEnvironment = "CHAIN_TEST_AMBIENT_SAMPLER_HELPER"
 
 func TestNormalizeStandardStreamSyncError(t *testing.T) {
 	otherFailure := errors.New("disk sync failed")
@@ -99,4 +106,54 @@ func TestWriteFallbackBoundsErrorOutput(t *testing.T) {
 	if !strings.HasSuffix(written, "\n") {
 		t.Fatalf("writeFallback() output = %q, want trailing newline", written)
 	}
+}
+
+func TestRunRejectsAmbientOTELSamplerWithoutGlobalDiagnostic(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen on occupied test port: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close occupied test port: %v", err)
+		}
+	})
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	const privateSampler = "private-invalid-sampler-62fefba0"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRunAmbientSamplerHelper$")
+	command.Env = []string{
+		ambientSamplerHelperEnvironment + "=1",
+		"PORT=" + strconv.Itoa(port),
+		"CHAIN_OTEL_ENABLED=true",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317",
+		"OTEL_TRACES_SAMPLER=" + privateSampler,
+	}
+	output, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("helper process did not exit within bound: %v", ctx.Err())
+	}
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) || exitError.ExitCode() != exitFailure {
+		t.Fatalf("helper error = %v, output = %q; want exit code %d", err, output, exitFailure)
+	}
+	written := string(output)
+	if strings.Contains(written, privateSampler) {
+		t.Fatalf("process output exposed ambient sampler value: %q", written)
+	}
+	if strings.Contains(written, "unsupported sampler") {
+		t.Fatalf("process output contains SDK global diagnostic: %q", written)
+	}
+	if !strings.Contains(written, "OTEL_TRACES_SAMPLER") {
+		t.Fatalf("process output = %q, want bounded configuration variable", written)
+	}
+}
+
+func TestRunAmbientSamplerHelper(t *testing.T) {
+	if os.Getenv(ambientSamplerHelperEnvironment) != "1" {
+		return
+	}
+	os.Exit(run())
 }

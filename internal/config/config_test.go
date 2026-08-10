@@ -300,6 +300,57 @@ func TestLoadAcceptsTraceSampleRatioBounds(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsAmbientOTELSamplerConfigurationWhenTelemetryIsEnabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		variable string
+		value    string
+	}{
+		{
+			name:     "sampler",
+			variable: "OTEL_TRACES_SAMPLER",
+			value:    "private-sampler-value-7e7fb4e7",
+		},
+		{
+			name:     "sampler argument",
+			variable: "OTEL_TRACES_SAMPLER_ARG",
+			value:    "private-sampler-argument-983906f0",
+		},
+		{
+			name:     "empty sampler is still present",
+			variable: "OTEL_TRACES_SAMPLER",
+			value:    "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			values := map[string]string{
+				"CHAIN_OTEL_ENABLED":          "true",
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
+				test.variable:                 test.value,
+			}
+			_, err := Load(mapLookup(values), "test-version")
+			if err == nil {
+				t.Fatal("Load error = nil, want unsupported ambient sampler error")
+			}
+			if !strings.Contains(err.Error(), test.variable) {
+				t.Fatalf("Load error = %q, want environment variable %q", err, test.variable)
+			}
+			if test.value != "" && strings.Contains(err.Error(), test.value) {
+				t.Fatalf("Load error = %q, must not expose supplied value", err)
+			}
+			if !strings.Contains(err.Error(), "CHAIN_OTEL_TRACE_SAMPLE_RATIO") {
+				t.Fatalf("Load error = %q, want supported sampling variable", err)
+			}
+		})
+	}
+}
+
 func mapLookup(values map[string]string) LookupEnv {
 	return func(key string) (string, bool) {
 		value, ok := values[key]

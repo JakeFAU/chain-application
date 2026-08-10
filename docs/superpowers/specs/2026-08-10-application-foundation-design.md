@@ -129,7 +129,9 @@ shutdown is bounded and joined with other owned cleanup errors.
 Trace sampling is supplied explicitly as parent-based ratio sampling. Valid
 upstream sampled and unsampled decisions are honored, while the configured
 ratio applies to new root traces. Ambient `OTEL_TRACES_SAMPLER` and
-`OTEL_TRACES_SAMPLER_ARG` values do not alter this application-owned policy.
+`OTEL_TRACES_SAMPLER_ARG` values do not alter this application-owned policy;
+when telemetry is enabled, their presence is rejected during typed startup
+configuration before the OpenTelemetry SDK is constructed.
 
 Logs rely on Cloud Run's automatic stdout/stderr ingestion rather than an OTel
 log exporter, logging agent, or Cloud Logging client. Grafana, Prometheus,

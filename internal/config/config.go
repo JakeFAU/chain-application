@@ -15,6 +15,8 @@ const (
 	environmentShutdownTimeout       = "CHAIN_SHUTDOWN_TIMEOUT"
 	environmentTelemetryEnabled      = "CHAIN_OTEL_ENABLED"
 	environmentTraceSampleRatio      = "CHAIN_OTEL_TRACE_SAMPLE_RATIO"
+	environmentOTELTracesSampler     = "OTEL_TRACES_SAMPLER"
+	environmentOTELTracesSamplerArg  = "OTEL_TRACES_SAMPLER_ARG"
 	environmentTelemetryEndpoint     = "OTEL_EXPORTER_OTLP_ENDPOINT"
 	environmentProjectID             = "CHAIN_GCP_PROJECT_ID"
 	environmentDeploymentEnvironment = "CHAIN_DEPLOYMENT_ENVIRONMENT"
@@ -169,6 +171,11 @@ func loadTelemetry(lookup LookupEnv, buildVersion string) (Telemetry, error) {
 	if err != nil {
 		return Telemetry{}, fmt.Errorf("%s: %s", environmentTelemetryEnabled, invalidBooleanReason)
 	}
+	if enabled {
+		if err := rejectAmbientOTELSamplerConfiguration(lookup); err != nil {
+			return Telemetry{}, err
+		}
+	}
 	traceSampleRatio, err := loadTraceSampleRatio(lookup)
 	if err != nil {
 		return Telemetry{}, err
@@ -198,6 +205,22 @@ func loadTelemetry(lookup LookupEnv, buildVersion string) (Telemetry, error) {
 		ServiceName:      defaultServiceName,
 		Version:          buildVersion,
 	}, nil
+}
+
+func rejectAmbientOTELSamplerConfiguration(lookup LookupEnv) error {
+	for _, variable := range [...]string{
+		environmentOTELTracesSampler,
+		environmentOTELTracesSamplerArg,
+	} {
+		if _, present := lookup(variable); present {
+			return fmt.Errorf(
+				"%s is unsupported; use %s",
+				variable,
+				environmentTraceSampleRatio,
+			)
+		}
+	}
+	return nil
 }
 
 func loadTraceSampleRatio(lookup LookupEnv) (TraceSampleRatio, error) {
