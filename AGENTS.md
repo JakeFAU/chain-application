@@ -147,9 +147,9 @@ checks.
 `make tools` installs the repository-pinned Staticcheck and govulncheck
 binaries under ignored `./bin`. `make fmt`, `make fmt-check`, `make vet`,
 `make staticcheck`, `make test`, `make test-race`, `make generate`, and
-`make generate-check` are now operational. `make build` remains unavailable
-until Task 5 adds the application composition root, so `make check` is also
-unavailable. Do not report commands as passing before their creating tasks land.
+`make generate-check`, `make build`, and `make check` are now operational. Do
+not report commands as passing before they have been run and their output has
+been checked.
 
 The only currently meaningful prerequisite checks are:
 

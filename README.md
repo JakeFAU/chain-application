@@ -32,12 +32,9 @@ The Make targets are `setup`, `tools`, `fmt`, `fmt-check`, `vet`,
 `staticcheck`, `test`, `test-race`, `build`, `vuln`, `generate`,
 `generate-check`, and `check`.
 
-`make tools`, `make fmt`, `make fmt-check`, `make vet`, `make staticcheck`,
-`make test`, `make test-race`, `make generate`, and `make generate-check` are
-operational. `make build` remains unavailable until Task 5 adds the application
-composition root, so `make check` is also unavailable. Database, Compose, and
-container commands remain unavailable until their defining tasks commit their
-service and image contracts.
+All listed targets are operational. Database, Compose, and container commands
+remain unavailable until their defining tasks commit their service and image
+contracts.
 
 The direct commands behind the wrappers are part of the repository contract:
 
@@ -51,6 +48,28 @@ go test -race ./...
 go build ./...
 ./bin/govulncheck ./...
 ```
+
+## Run locally
+
+Build and start the API with local-safe defaults:
+
+```bash
+make build
+./bin/chain-api
+```
+
+The process listens on all interfaces at port `8080` by default. Override the
+port only at the startup boundary when needed:
+
+```bash
+PORT=18080 ./bin/chain-api
+curl --fail --silent --show-error http://127.0.0.1:18080/healthz
+```
+
+The health response is `{"status":"ok"}`. Send `SIGINT` or `SIGTERM` for a
+bounded graceful shutdown. HTTP closes before telemetry flush, and logger
+synchronization is attempted last. Telemetry is disabled by default, so local
+startup does not require an OpenTelemetry Collector.
 
 ## Local configuration and acceptance boundaries
 
