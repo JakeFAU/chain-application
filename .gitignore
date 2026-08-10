@@ -1,0 +1,70 @@
+# Repository-local tools and build outputs
+/bin/
+/dist/
+/tmp/
+*.test
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+go.work
+go.work.sum
+
+# Coverage, fuzz, trace, and profiling output
+/coverage/
+/profiles/
+cover.out
+coverage.out
+cpu.out
+mem.out
+mutex.out
+block.out
+trace.out
+*.prof
+*.pprof
+*.trace
+
+# Local environment configuration
+.env
+.env.*
+!.env.example
+
+# Local database and agent scratch state
+/.local/
+/.superpowers/
+/.worktrees/
+
+# IDE and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+
+# Private keys, certificates, and secret material
+/secrets/
+/keys/
+/certs/private/
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Local and cloud credential files
+**/application_default_credentials.json
+**/credentials.json
+**/*-credentials.json
+**/service-account*.json
+**/gha-creds-*.json
+
+# Infrastructure artifacts do not belong in this repository
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
