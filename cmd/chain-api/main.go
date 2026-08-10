@@ -29,6 +29,7 @@ const (
 	telemetryCleanupFailureMessage = "telemetry cleanup failed"
 	standardOutputPath             = "/dev/stdout"
 	standardErrorPath              = "/dev/stderr"
+	standardStreamSyncOperation    = "sync"
 )
 
 var buildVersion = "devel"
@@ -103,19 +104,66 @@ func syncLogger(logger *zap.Logger) error {
 }
 
 func normalizeStandardStreamSyncError(err error) error {
-	var pathErr *os.PathError
-	if !errors.As(err, &pathErr) {
-		return err
+	filtered, _ := filterStandardStreamSyncErrors(err)
+	return filtered
+}
+
+func filterStandardStreamSyncErrors(err error) (error, bool) {
+	if err == nil {
+		return nil, false
+	}
+	if isUnsupportedStandardStreamSyncError(err) {
+		return nil, true
+	}
+
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		children := wrapped.Unwrap()
+		remaining := make([]error, 0, len(children))
+		changed := false
+		for _, child := range children {
+			filtered, childChanged := filterStandardStreamSyncErrors(child)
+			changed = changed || childChanged
+			if filtered != nil {
+				remaining = append(remaining, filtered)
+			}
+		}
+		if !changed {
+			return err, false
+		}
+		return errors.Join(remaining...), true
+
+	case interface{ Unwrap() error }:
+		filtered, changed := filterStandardStreamSyncErrors(wrapped.Unwrap())
+		if !changed {
+			return err, false
+		}
+		return filtered, true
+
+	default:
+		return err, false
+	}
+}
+
+func isUnsupportedStandardStreamSyncError(err error) bool {
+	pathErr, ok := err.(*os.PathError)
+	if !ok || pathErr.Op != standardStreamSyncOperation {
+		return false
 	}
 	if pathErr.Path != standardOutputPath && pathErr.Path != standardErrorPath {
-		return err
+		return false
 	}
-	if errors.Is(err, syscall.EINVAL) ||
-		errors.Is(err, syscall.ENOTTY) ||
-		errors.Is(err, syscall.EBADF) {
-		return nil
+
+	errno, ok := pathErr.Err.(syscall.Errno)
+	if !ok {
+		return false
 	}
-	return err
+	switch errno {
+	case syscall.EINVAL, syscall.ENOTTY, syscall.EBADF:
+		return true
+	default:
+		return false
+	}
 }
 
 func writeFallback(writer io.Writer, err error) {
