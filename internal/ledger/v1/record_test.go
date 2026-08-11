@@ -66,6 +66,37 @@ func TestNewRecord(t *testing.T) {
 	}
 }
 
+func TestNewRecordAcceptsOpaqueNonDERSignatures(t *testing.T) {
+	t.Parallel()
+
+	event := testGenesisStructuralEvent(t)
+	tests := []struct {
+		name      string
+		signature []byte
+	}{
+		{name: "minimum length", signature: bytes.Repeat([]byte{0xff}, minSignatureBytes)},
+		{name: "maximum length", signature: bytes.Repeat([]byte{0xff}, maxSignatureBytes)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record, err := NewRecord(event, goldenSignerKeyReference, test.signature)
+			if err != nil {
+				t.Fatalf("NewRecord: %v", err)
+			}
+			if got := record.SignatureBytes(); !bytes.Equal(got, test.signature) {
+				t.Fatalf("signature bytes = %x, want %x", got, test.signature)
+			}
+			if got := record.SignatureStatus(); got != SignatureStatusUnverified {
+				t.Fatalf("signature status = %d, want %d", got, SignatureStatusUnverified)
+			}
+			if _, err := ValidateRecordStructure(record.Bytes()); err != nil {
+				t.Fatalf("ValidateRecordStructure: %v", err)
+			}
+		})
+	}
+}
+
 func TestGenesisConformanceVector(t *testing.T) {
 	t.Parallel()
 
@@ -310,26 +341,87 @@ func TestValidateRecordStructureDoesNotLeakPrivateValues(t *testing.T) {
 	t.Parallel()
 
 	const (
-		privateSigner    = "private-signer-marker"
-		privatePayload   = "private-payload-marker"
-		privateSignature = "private-signature-marker"
-		privateDigest    = "private-digest-marker"
+		privateSigner       = "private-signer-marker"
+		privatePayload      = "private-payload-marker"
+		privateSignature    = "private-signature-marker"
+		privateEventDigest  = "private-event-digest-marker"
+		privateRecordDigest = "private-record-digest-marker"
 	)
-	body := testGenesisRecordBodyWire(t)
-	body.SignerKeyReference = privateSigner
-	body.SignatureBytes = []byte(privateSignature)
-	body.EventBodyBytes = []byte(privatePayload)
-	body.EventDigest = []byte(privateDigest)
-	outer := testLedgerRecordWire(t, encodeRecordBodyForTest(t, body))
-	outer.RecordDigest = []byte(privateDigest)
-	_, err := ValidateRecordStructure(encodeLedgerRecordForTest(t, outer))
-	if err == nil {
-		t.Fatal("ValidateRecordStructure error = nil, want rejection")
+	tests := []struct {
+		name    string
+		encoded func(t *testing.T) []byte
+		markers []string
+		want    error
+	}{
+		{
+			name: "record body signer validation",
+			encoded: func(t *testing.T) []byte {
+				body := testGenesisRecordBodyWire(t)
+				body.SignerKeyReference = privateSigner + "\n"
+				return encodeRecordWithBodyForTest(t, body)
+			},
+			markers: []string{privateSigner},
+			want:    ErrSchemaViolation,
+		},
+		{
+			name: "record body signature metadata validation",
+			encoded: func(t *testing.T) []byte {
+				body := testGenesisRecordBodyWire(t)
+				body.SignatureBytes = []byte(privateSignature)
+				body.SignatureAlgorithm = "invalid-signature-algorithm"
+				return encodeRecordWithBodyForTest(t, body)
+			},
+			markers: []string{privateSignature},
+			want:    ErrSchemaViolation,
+		},
+		{
+			name: "nested event structural validation with payload marker",
+			encoded: func(t *testing.T) []byte {
+				body := testGenesisRecordBodyWire(t)
+				event := testGenesisEventBodyWire()
+				event.LedgerID = []byte{0x00}
+				event.PayloadBytes = []byte(privatePayload)
+				body.EventBodyBytes = encodeEventBodyForTest(t, event)
+				return encodeRecordWithBodyForTest(t, body)
+			},
+			markers: []string{privatePayload},
+			want:    ErrSchemaViolation,
+		},
+		{
+			name: "declared event digest mismatch",
+			encoded: func(t *testing.T) []byte {
+				body := testGenesisRecordBodyWire(t)
+				body.EventDigest = testDigestWithMarker(privateEventDigest)
+				return encodeRecordWithBodyForTest(t, body)
+			},
+			markers: []string{privateEventDigest},
+			want:    ErrDigestMismatch,
+		},
+		{
+			name: "outer record digest mismatch",
+			encoded: func(t *testing.T) []byte {
+				body := testGenesisRecordBodyWire(t)
+				outer := testLedgerRecordWire(t, encodeRecordBodyForTest(t, body))
+				outer.RecordDigest = testDigestWithMarker(privateRecordDigest)
+				return encodeLedgerRecordForTest(t, outer)
+			},
+			markers: []string{privateRecordDigest},
+			want:    ErrDigestMismatch,
+		},
 	}
-	for _, marker := range []string{privateSigner, privatePayload, privateSignature, privateDigest} {
-		if strings.Contains(err.Error(), marker) {
-			t.Fatalf("error text leaked private marker %q: %q", marker, err)
-		}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ValidateRecordStructure(test.encoded(t))
+			if !errors.Is(err, test.want) {
+				t.Fatalf("ValidateRecordStructure error = %v, want %v", err, test.want)
+			}
+			for _, marker := range test.markers {
+				if strings.Contains(err.Error(), marker) {
+					t.Fatalf("error text leaked private marker %q: %q", marker, err)
+				}
+			}
+		})
 	}
 }
 
@@ -398,6 +490,17 @@ func encodeLedgerRecordForTest(t *testing.T, wire ledgerRecordWire) []byte {
 		t.Fatalf("encode ledger record: %v", err)
 	}
 	return encoded
+}
+
+func encodeRecordWithBodyForTest(t *testing.T, body recordBodyWire) []byte {
+	t.Helper()
+	return encodeLedgerRecordForTest(t, testLedgerRecordWire(t, encodeRecordBodyForTest(t, body)))
+}
+
+func testDigestWithMarker(marker string) []byte {
+	digest := make([]byte, digestBytes)
+	copy(digest, marker)
+	return digest
 }
 
 func readProtocolFixture(t testing.TB, name string) []byte {
