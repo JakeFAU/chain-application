@@ -22,10 +22,11 @@ SMOKE_ATTEMPTS := 30
 SMOKE_REQUEST_TIMEOUT_SECONDS := 2
 SMOKE_RETRY_INTERVAL_SECONDS := 1
 SMOKE_RESPONSE := {"status":"ok"}
+FUZZ_TIME ?= 10s
 
 .PHONY: setup tools fmt fmt-check vet staticcheck test test-race build vuln \
 	generate generate-check check db-config db-up db-down db-logs migrate \
-	migrate-status container-build container-smoke
+	migrate-status container-build container-smoke fuzz-protocol
 
 setup: tools generate
 
@@ -93,6 +94,14 @@ generate-check:
 	fi
 
 check: fmt-check vet staticcheck test test-race build vuln generate-check
+
+fuzz-protocol:
+	$(GO) test ./internal/ledger/v1 -run '^$$' \
+		-fuzz '^FuzzValidateEventStructure$$' -fuzztime $(FUZZ_TIME)
+	$(GO) test ./internal/ledger/v1 -run '^$$' \
+		-fuzz '^FuzzValidateRecordStructure$$' -fuzztime $(FUZZ_TIME)
+	$(GO) test ./internal/ledger/v1 -run '^$$' \
+		-fuzz '^FuzzValidateChainConsistency$$' -fuzztime $(FUZZ_TIME)
 
 db-config:
 	@test -f $(ENV_FILE) || { echo "copy .env.example to $(ENV_FILE) and replace local placeholders" >&2; exit 1; }
