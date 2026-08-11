@@ -3,9 +3,40 @@
 The Go application repository for Attribution Chain. This foundation proves a
 reproducible toolchain, OpenAPI health boundary, typed runtime configuration,
 observability and process lifecycle, local PostgreSQL workflow, static
-container, and credential-free CI. It does not implement domain or ledger
-behavior and does not authorize a remote, cloud resource, deployment, or live
-GCP operation.
+container, and credential-free CI. It also contains a pure version 1 ledger
+protocol kernel. It does not implement ledger persistence or admission,
+application domain behavior, or authorize a remote, cloud resource, deployment,
+or live GCP operation.
+
+## Ledger protocol kernel (v1)
+
+The CDDL schema in [`protocol/ledger/v1/ledger.cddl`](protocol/ledger/v1/ledger.cddl),
+together with the approved normative design, is the language-neutral protocol
+authority. The pure Go implementation is `internal/ledger/v1` (package
+`ledgerv1`). It accepts only deterministic CBOR and requires decoded values to
+re-encode exactly to their input bytes.
+
+The kernel distinguishes the event digest (the exact ordered event body) from
+the record digest (the exact admitted record body, including declared signer
+metadata and signature bytes). Version 1 supports semantic replay only for the
+genesis `ledger_initialized` event. It can structurally inspect unknown events
+and advance a structurally consistent chain, but semantic replay stops for an
+unsupported event.
+
+Version 1 fixes its SHA-256 digest and P-256/ASN.1-DER metadata identifiers;
+they are not runtime configuration. The committed golden vectors under
+`protocol/ledger/v1/testdata` provide exact binary and hex conformance evidence.
+Run bounded parser fuzzing with:
+
+```bash
+make fuzz-protocol
+```
+
+Signature bytes are structurally opaque in this kernel. It does not establish
+DER validity, low-S policy, key resolution, or cryptographic signature
+authenticity. PostgreSQL ledger schema and persistence, live admission, KMS
+signing, non-genesis domain events, HTTP/API behavior, and all hosted, cloud,
+deployment, and live acceptance remain outside this slice.
 
 ## Prerequisites
 
@@ -52,6 +83,7 @@ Every listed target is operational:
 | `make generate` | Regenerates the OpenAPI Go binding in place. |
 | `make generate-check` | Generates to a temporary file and checks only the committed OpenAPI output for drift. |
 | `make check` | Runs `fmt-check`, vet, Staticcheck, tests, race tests, build, govulncheck, and `generate-check` without rewriting tracked source. |
+| `make fuzz-protocol` | Runs bounded Go fuzzing of the version 1 structural event, record, and chain validators; it does not cryptographically verify signatures. |
 | `make db-config` | Checks that the selected ignored `ENV_FILE` exists; it is the shared prerequisite for database targets. |
 | `make db-up` | Starts the loopback-only PostgreSQL Compose service and waits for health; requires Docker. |
 | `make db-down` | Stops the Compose service without deleting its named volume; requires Docker. |
