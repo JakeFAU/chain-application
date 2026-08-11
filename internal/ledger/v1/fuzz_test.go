@@ -8,27 +8,36 @@ import (
 
 func FuzzValidateEventStructure(f *testing.F) {
 	f.Add(readProtocolFixture(f, "genesis-event-body.cbor"))
+	f.Add(conformanceInvalidKnownEventPayloadSeed(f))
+	f.Add(conformanceUnknownEventSeed(f))
 	f.Add([]byte{0xff})
 	f.Fuzz(func(t *testing.T, input []byte) {
 		original := bytes.Clone(input)
-		event, err := ValidateEventStructure(input)
+		eventOne, errOne := ValidateEventStructure(input)
+		eventTwo, errTwo := ValidateEventStructure(input)
 		if !bytes.Equal(input, original) {
 			t.Fatal("ValidateEventStructure mutated input")
 		}
-		if err != nil {
+		assertStableProtocolErrorIdentity(t, "event structure", errOne, errTwo)
+		if errOne != nil {
 			return
 		}
-		if !bytes.Equal(event.Bytes(), input) {
+		assertStructuralEventsEqual(t, eventOne, eventTwo)
+		if !bytes.Equal(eventOne.Bytes(), input) {
 			t.Fatal("accepted event bytes differ from input")
 		}
-		copyBytes := event.Bytes()
-		copyBytes[0] ^= 0xff
-		if bytes.Equal(copyBytes, event.Bytes()) {
-			t.Fatal("event Bytes returned aliased storage")
+
+		semanticErrOne := ValidateEventSemantics(eventOne)
+		semanticErrTwo := ValidateEventSemantics(eventOne)
+		assertStableProtocolErrorIdentity(t, "event semantics", semanticErrOne, semanticErrTwo)
+		if !bytes.Equal(input, original) || !bytes.Equal(eventOne.Bytes(), input) {
+			t.Fatal("ValidateEventSemantics mutated accepted event or fuzz input")
 		}
-		again, err := ValidateEventStructure(input)
-		if err != nil || again.Digest() != event.Digest() || again.Sequence() != event.Sequence() {
-			t.Fatalf("second validation differs: %v", err)
+
+		copyBytes := eventOne.Bytes()
+		copyBytes[0] ^= 0xff
+		if bytes.Equal(copyBytes, eventOne.Bytes()) {
+			t.Fatal("event Bytes returned aliased storage")
 		}
 	})
 }
@@ -38,24 +47,23 @@ func FuzzValidateRecordStructure(f *testing.F) {
 	f.Add([]byte{0xff})
 	f.Fuzz(func(t *testing.T, input []byte) {
 		original := bytes.Clone(input)
-		record, err := ValidateRecordStructure(input)
+		recordOne, errOne := ValidateRecordStructure(input)
+		recordTwo, errTwo := ValidateRecordStructure(input)
 		if !bytes.Equal(input, original) {
 			t.Fatal("ValidateRecordStructure mutated input")
 		}
-		if err != nil {
+		assertStableProtocolErrorIdentity(t, "record structure", errOne, errTwo)
+		if errOne != nil {
 			return
 		}
-		if !bytes.Equal(record.Bytes(), input) {
+		assertStructuralRecordsEqual(t, recordOne, recordTwo)
+		if !bytes.Equal(recordOne.Bytes(), input) {
 			t.Fatal("accepted record bytes differ from input")
 		}
-		copyBytes := record.Bytes()
+		copyBytes := recordOne.Bytes()
 		copyBytes[0] ^= 0xff
-		if bytes.Equal(copyBytes, record.Bytes()) {
+		if bytes.Equal(copyBytes, recordOne.Bytes()) {
 			t.Fatal("record Bytes returned aliased storage")
-		}
-		again, err := ValidateRecordStructure(input)
-		if err != nil || again.RecordDigest() != record.RecordDigest() {
-			t.Fatalf("second validation differs: %v", err)
 		}
 	})
 }
@@ -64,38 +72,105 @@ func FuzzValidateChainConsistency(f *testing.F) {
 	golden := readProtocolFixture(f, "genesis-ledger-record.cbor")
 	unknown := conformanceUnknownContinuationSeed(f, golden)
 	assertChainFuzzSeeds(f, golden, unknown)
+	f.Add([]byte{0xff}, golden)
+	f.Add(unknown, golden)
+	f.Add(golden, []byte{0xff})
 	f.Add(golden, golden)
 	f.Add(golden, unknown)
 	f.Fuzz(func(t *testing.T, firstBytes, secondBytes []byte) {
 		firstOriginal := bytes.Clone(firstBytes)
 		secondOriginal := bytes.Clone(secondBytes)
-		first, err := ValidateRecordStructure(firstBytes)
+		firstOne, firstErrOne := ValidateRecordStructure(firstBytes)
+		firstTwo, firstErrTwo := ValidateRecordStructure(firstBytes)
 		if !bytes.Equal(firstBytes, firstOriginal) || !bytes.Equal(secondBytes, secondOriginal) {
-			t.Fatal("record validation mutated fuzz input")
+			t.Fatal("first record validation mutated fuzz input")
 		}
-		if err != nil {
+		assertStableProtocolErrorIdentity(t, "first record structure", firstErrOne, firstErrTwo)
+		if firstErrOne != nil {
 			return
 		}
-		state, err := ValidateChainConsistency(ChainState{}, first)
-		if err != nil {
+		assertStructuralRecordsEqual(t, firstOne, firstTwo)
+		if !bytes.Equal(firstOne.Bytes(), firstBytes) {
+			t.Fatal("accepted first record bytes differ from input")
+		}
+
+		stateOne, stateErrOne := ValidateChainConsistency(ChainState{}, firstOne)
+		stateTwo, stateErrTwo := ValidateChainConsistency(ChainState{}, firstTwo)
+		if !bytes.Equal(firstBytes, firstOriginal) || !bytes.Equal(secondBytes, secondOriginal) {
+			t.Fatal("initial chain validation mutated fuzz input")
+		}
+		assertStableProtocolErrorIdentity(t, "initial chain consistency", stateErrOne, stateErrTwo)
+		if stateErrOne != nil {
 			return
 		}
-		second, err := ValidateRecordStructure(secondBytes)
-		if !bytes.Equal(secondBytes, secondOriginal) {
+		if stateOne != stateTwo {
+			t.Fatal("successful initial chain results differ")
+		}
+
+		secondOne, secondErrOne := ValidateRecordStructure(secondBytes)
+		secondTwo, secondErrTwo := ValidateRecordStructure(secondBytes)
+		if !bytes.Equal(firstBytes, firstOriginal) || !bytes.Equal(secondBytes, secondOriginal) {
 			t.Fatal("second record validation mutated fuzz input")
 		}
-		if err != nil {
+		assertStableProtocolErrorIdentity(t, "second record structure", secondErrOne, secondErrTwo)
+		if secondErrOne != nil {
 			return
 		}
-		nextOne, errOne := ValidateChainConsistency(state, second)
-		nextTwo, errTwo := ValidateChainConsistency(state, second)
-		if protocolErrorIdentity(errOne) != protocolErrorIdentity(errTwo) {
-			t.Fatalf("error identities differ: %v and %v", errOne, errTwo)
+		assertStructuralRecordsEqual(t, secondOne, secondTwo)
+		if !bytes.Equal(secondOne.Bytes(), secondBytes) {
+			t.Fatal("accepted second record bytes differ from input")
 		}
-		if errOne == nil && nextOne != nextTwo {
+
+		nextOne, nextErrOne := ValidateChainConsistency(stateOne, secondOne)
+		nextTwo, nextErrTwo := ValidateChainConsistency(stateTwo, secondTwo)
+		if !bytes.Equal(firstBytes, firstOriginal) || !bytes.Equal(secondBytes, secondOriginal) {
+			t.Fatal("next chain validation mutated fuzz input")
+		}
+		assertStableProtocolErrorIdentity(t, "next chain consistency", nextErrOne, nextErrTwo)
+		if nextErrOne == nil && nextOne != nextTwo {
 			t.Fatal("successful chain results differ")
 		}
 	})
+}
+
+func assertStableProtocolErrorIdentity(t testing.TB, stage string, errOne, errTwo error) {
+	t.Helper()
+	identityOne := protocolErrorIdentity(errOne)
+	identityTwo := protocolErrorIdentity(errTwo)
+	if identityOne != identityTwo {
+		t.Fatalf("%s error identities differ: %q and %q", stage, identityOne, identityTwo)
+	}
+}
+
+func assertStructuralEventsEqual(t testing.TB, eventOne, eventTwo StructuralEvent) {
+	t.Helper()
+	previousOne, hasPreviousOne := eventOne.PreviousRecordDigest()
+	previousTwo, hasPreviousTwo := eventTwo.PreviousRecordDigest()
+	if !bytes.Equal(eventOne.Bytes(), eventTwo.Bytes()) ||
+		eventOne.Digest() != eventTwo.Digest() ||
+		eventOne.LedgerID() != eventTwo.LedgerID() ||
+		eventOne.Sequence() != eventTwo.Sequence() ||
+		previousOne != previousTwo ||
+		hasPreviousOne != hasPreviousTwo ||
+		eventOne.AdmittedAtUnixMS() != eventTwo.AdmittedAtUnixMS() ||
+		eventOne.Kind() != eventTwo.Kind() ||
+		eventOne.PayloadVersion() != eventTwo.PayloadVersion() ||
+		!bytes.Equal(eventOne.PayloadBytes(), eventTwo.PayloadBytes()) {
+		t.Fatal("successful event structure results differ")
+	}
+}
+
+func assertStructuralRecordsEqual(t testing.TB, recordOne, recordTwo StructuralRecord) {
+	t.Helper()
+	if !bytes.Equal(recordOne.Bytes(), recordTwo.Bytes()) ||
+		!bytes.Equal(recordOne.RecordBodyBytes(), recordTwo.RecordBodyBytes()) ||
+		recordOne.RecordDigest() != recordTwo.RecordDigest() ||
+		recordOne.SignerKeyReference() != recordTwo.SignerKeyReference() ||
+		!bytes.Equal(recordOne.SignatureBytes(), recordTwo.SignatureBytes()) ||
+		recordOne.SignatureStatus() != recordTwo.SignatureStatus() {
+		t.Fatal("successful record structure results differ")
+	}
+	assertStructuralEventsEqual(t, recordOne.Event(), recordTwo.Event())
 }
 
 func TestFuzzChainSeedPreflight(t *testing.T) {
@@ -161,4 +236,42 @@ func conformanceUnknownContinuationSeed(t testing.TB, genesisBytes []byte) []byt
 		t.Fatalf("NewRecord unknown continuation seed: %v", err)
 	}
 	return record.Bytes()
+}
+
+func conformanceUnknownEventSeed(t testing.TB) []byte {
+	t.Helper()
+	genesisBytes := readProtocolFixture(t, "genesis-ledger-record.cbor")
+	unknownBytes := conformanceUnknownContinuationSeed(t, genesisBytes)
+	unknown, err := ValidateRecordStructure(unknownBytes)
+	if err != nil {
+		t.Fatalf("ValidateRecordStructure unknown event seed: %v", err)
+	}
+	return unknown.Event().Bytes()
+}
+
+func conformanceInvalidKnownEventPayloadSeed(t testing.TB) []byte {
+	t.Helper()
+	genesisBytes := readProtocolFixture(t, "genesis-event-body.cbor")
+	genesis, err := ValidateEventStructure(genesisBytes)
+	if err != nil {
+		t.Fatalf("ValidateEventStructure genesis event seed: %v", err)
+	}
+	ledgerID := genesis.LedgerID()
+	encoded, err := encodeCanonical(eventBodyWire{
+		ProtocolVersion:  protocolVersionV1,
+		LedgerID:         ledgerID[:],
+		Sequence:         1,
+		AdmittedAtUnixMS: genesis.AdmittedAtUnixMS(),
+		EventKind:        uint64(EventKindLedgerInitialized),
+		PayloadVersion:   ledgerInitializedPayloadVersionV1,
+		PayloadBytes:     []byte{0xff},
+	}, maxEventBodyBytes, stageEventBody)
+	if err != nil {
+		t.Fatalf("encode invalid known event payload seed: %v", err)
+	}
+	event, err := ValidateEventStructure(encoded)
+	if err != nil {
+		t.Fatalf("ValidateEventStructure invalid known event payload seed: %v", err)
+	}
+	return event.Bytes()
 }

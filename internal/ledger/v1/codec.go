@@ -37,7 +37,6 @@ func mustProtocolDecMode() cbor.DecMode {
 	return mode
 }
 
-//lint:ignore U1000 Task one establishes this helper for later ledger protocol kernel tasks.
 func encodeCanonical(value any, maxBytes int, stage validationStage) ([]byte, error) {
 	encoded, err := protocolEncMode.Marshal(value)
 	if err != nil {
