@@ -1,4 +1,3 @@
-//lint:file-ignore U1000 Task one establishes constants consumed by later ledger protocol kernel tasks.
 package ledgerv1
 
 const (
