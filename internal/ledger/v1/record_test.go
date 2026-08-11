@@ -90,8 +90,15 @@ func TestNewRecordAcceptsOpaqueNonDERSignatures(t *testing.T) {
 			if got := record.SignatureStatus(); got != SignatureStatusUnverified {
 				t.Fatalf("signature status = %d, want %d", got, SignatureStatusUnverified)
 			}
-			if _, err := ValidateRecordStructure(record.Bytes()); err != nil {
+			parsed, err := ValidateRecordStructure(record.Bytes())
+			if err != nil {
 				t.Fatalf("ValidateRecordStructure: %v", err)
+			}
+			if got := parsed.SignatureBytes(); !bytes.Equal(got, test.signature) {
+				t.Fatalf("parsed signature bytes = %x, want %x", got, test.signature)
+			}
+			if got := parsed.SignatureStatus(); got != SignatureStatusUnverified {
+				t.Fatalf("parsed signature status = %d, want %d", got, SignatureStatusUnverified)
 			}
 		})
 	}
