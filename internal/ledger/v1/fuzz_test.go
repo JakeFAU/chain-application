@@ -2,6 +2,7 @@ package ledgerv1
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
 
@@ -62,6 +63,7 @@ func FuzzValidateRecordStructure(f *testing.F) {
 func FuzzValidateChainConsistency(f *testing.F) {
 	golden := readProtocolFixture(f, "genesis-ledger-record.cbor")
 	unknown := conformanceUnknownContinuationSeed(f, golden)
+	assertChainFuzzSeeds(f, golden, unknown)
 	f.Add(golden, golden)
 	f.Add(golden, unknown)
 	f.Fuzz(func(t *testing.T, firstBytes, secondBytes []byte) {
@@ -96,11 +98,45 @@ func FuzzValidateChainConsistency(f *testing.F) {
 	})
 }
 
-func conformanceUnknownContinuationSeed(f *testing.F, genesisBytes []byte) []byte {
-	f.Helper()
+func TestFuzzChainSeedPreflight(t *testing.T) {
+	golden := readProtocolFixture(t, "genesis-ledger-record.cbor")
+	unknown := conformanceUnknownContinuationSeed(t, golden)
+	assertChainFuzzSeeds(t, golden, unknown)
+}
+
+func assertChainFuzzSeeds(t testing.TB, goldenBytes, unknownBytes []byte) {
+	t.Helper()
+	genesis, err := ValidateRecordStructure(goldenBytes)
+	if err != nil {
+		t.Fatalf("ValidateRecordStructure genesis seed: %v", err)
+	}
+	chain, err := ValidateChainConsistency(ChainState{}, genesis)
+	if err != nil || !chain.Initialized() || chain.LastSequence() != 1 {
+		t.Fatalf("ValidateChainConsistency genesis seed = (%v, %v)", chain, err)
+	}
+	replay, err := Apply(ReplayState{}, genesis)
+	if err != nil || replay.ChainState() != chain {
+		t.Fatalf("Apply genesis seed = (%v, %v)", replay, err)
+	}
+
+	unknown, err := ValidateRecordStructure(unknownBytes)
+	if err != nil {
+		t.Fatalf("ValidateRecordStructure unknown seed: %v", err)
+	}
+	next, err := ValidateChainConsistency(chain, unknown)
+	if err != nil || next.LastSequence() != 2 {
+		t.Fatalf("ValidateChainConsistency unknown seed = (%v, %v)", next, err)
+	}
+	if unchanged, err := Apply(replay, unknown); !errors.Is(err, ErrUnsupportedEvent) || unchanged != replay {
+		t.Fatalf("Apply unknown seed = (%v, %v), want unchanged replay and ErrUnsupportedEvent", unchanged, err)
+	}
+}
+
+func conformanceUnknownContinuationSeed(t testing.TB, genesisBytes []byte) []byte {
+	t.Helper()
 	genesis, err := ValidateRecordStructure(genesisBytes)
 	if err != nil {
-		f.Fatalf("ValidateRecordStructure genesis seed: %v", err)
+		t.Fatalf("ValidateRecordStructure genesis seed: %v", err)
 	}
 	ledgerID := genesis.Event().LedgerID()
 	previousDigest := genesis.RecordDigest()
@@ -114,15 +150,15 @@ func conformanceUnknownContinuationSeed(f *testing.F, genesisBytes []byte) []byt
 		PayloadBytes:         []byte{0xff},
 	}, maxEventBodyBytes, stageEventBody)
 	if err != nil {
-		f.Fatalf("encode unknown continuation seed: %v", err)
+		t.Fatalf("encode unknown continuation seed: %v", err)
 	}
 	event, err := ValidateEventStructure(encoded)
 	if err != nil {
-		f.Fatalf("ValidateEventStructure unknown continuation seed: %v", err)
+		t.Fatalf("ValidateEventStructure unknown continuation seed: %v", err)
 	}
 	record, err := NewRecord(event, goldenSignerKeyReference, goldenOpaqueSignature)
 	if err != nil {
-		f.Fatalf("NewRecord unknown continuation seed: %v", err)
+		t.Fatalf("NewRecord unknown continuation seed: %v", err)
 	}
 	return record.Bytes()
 }

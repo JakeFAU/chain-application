@@ -208,18 +208,18 @@ func TestConformanceRejects(t *testing.T) {
 		} {
 			event := testGenesisEventBodyWire()
 			event.PayloadBytes = payload
-			structural, err := ValidateEventStructure(encodeEventBodyForTest(t, event))
+			record, err := ValidateRecordStructure(conformanceRecord(t, testRecordBodyForEvent(t, event)))
 			if err != nil {
-				t.Fatalf("ValidateEventStructure payload boundary: %v", err)
+				t.Fatalf("ValidateRecordStructure payload boundary: %v", err)
 			}
-			assertConformanceRejection(t, ErrMalformedCBOR, nil, func() error { return ValidateEventSemantics(structural) })
+			assertConformanceRejection(t, ErrMalformedCBOR, nil, func() error { return ValidateEventSemantics(record.Event()) })
 		}
 	})
 
 	t.Run("fixed fields and private values", func(t *testing.T) {
-		const privateSigner = "private-signer-marker"
+		const privateSignature = "private-invalid-utf8-signature-marker"
 		body := testGenesisRecordBodyWire(t)
-		body.SignerKeyReference = privateSigner
+		body.SignatureBytes = []byte(privateSignature)
 		invalidUTF8 := conformanceRecordBodyWithRawField(t, body, recordBodyKeySignerKeyReference, []byte{0x61, 0xff})
 		for _, test := range []struct {
 			name      string
@@ -227,7 +227,7 @@ func TestConformanceRejects(t *testing.T) {
 			want      error
 			forbidden []string
 		}{
-			{"invalid UTF-8 signer", conformanceOuterWithBody(t, invalidUTF8), ErrNonConformingCBOR, []string{privateSigner, "\xff"}},
+			{"invalid UTF-8 signer", conformanceOuterWithBody(t, invalidUTF8), ErrNonConformingCBOR, []string{privateSignature, "\xff"}},
 			{"wrong ledger identifier type", conformanceEventWithRawField(t, eventBodyKeyLedgerID, []byte{0x01}), ErrSchemaViolation, nil},
 			{"short ledger identifier", conformanceEventWithRawField(t, eventBodyKeyLedgerID, []byte{0x41, 0x00}), ErrSchemaViolation, nil},
 			{"long predecessor", conformanceEventWithRawField(t, eventBodyKeyPreviousRecordDigest, append([]byte{0x58, digestBytes + 1}, make([]byte, digestBytes+1)...)), ErrSchemaViolation, nil},
@@ -270,16 +270,170 @@ func TestConformanceRejects(t *testing.T) {
 		})
 	})
 
+	t.Run("one-property field boundary matrix", func(t *testing.T) {
+		for _, test := range []struct {
+			name  string
+			key   uint64
+			value []byte
+			want  error
+		}{
+			{"event protocol version scalar", eventBodyKeyProtocolVersion, conformanceText("private-event-version"), ErrSchemaViolation},
+			{"event ledger ID scalar", eventBodyKeyLedgerID, conformanceText("private-event-ledger"), ErrSchemaViolation},
+			{"event sequence scalar", eventBodyKeySequence, conformanceText("private-event-sequence"), ErrSchemaViolation},
+			{"event predecessor scalar", eventBodyKeyPreviousRecordDigest, conformanceText("private-event-previous"), ErrSchemaViolation},
+			{"event timestamp scalar", eventBodyKeyAdmittedAtUnixMS, conformanceText("private-event-time"), ErrSchemaViolation},
+			{"event kind scalar", eventBodyKeyEventKind, conformanceText("private-event-kind"), ErrSchemaViolation},
+			{"event payload version scalar", eventBodyKeyPayloadVersion, conformanceText("private-event-payload-version"), ErrSchemaViolation},
+			{"event payload scalar", eventBodyKeyPayloadBytes, conformanceText("private-event-payload"), ErrSchemaViolation},
+			{"event short ledger ID", eventBodyKeyLedgerID, conformanceBytes([]byte("private-short-ledger")), ErrSchemaViolation},
+			{"event long ledger ID", eventBodyKeyLedgerID, conformanceBytes(bytes.Repeat([]byte("p"), ledgerIDBytes+1)), ErrSchemaViolation},
+			{"event short predecessor", eventBodyKeyPreviousRecordDigest, conformanceBytes([]byte("private-short-predecessor")), ErrSchemaViolation},
+			{"event long predecessor", eventBodyKeyPreviousRecordDigest, conformanceBytes(bytes.Repeat([]byte("p"), digestBytes+1)), ErrSchemaViolation},
+			{"event version two", eventBodyKeyProtocolVersion, []byte{0x02}, ErrUnsupportedVersion},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				input := conformanceRecordWithEventBody(t, conformanceEventWithRawField(t, test.key, test.value))
+				assertConformanceRejection(t, test.want, nil, func() error {
+					_, err := ValidateRecordStructure(input)
+					return err
+				})
+			})
+		}
+
+		for _, test := range []struct {
+			name  string
+			key   uint64
+			value []byte
+			want  error
+		}{
+			{"record body version two", recordBodyKeyVersion, []byte{0x02}, ErrUnsupportedVersion},
+			{"record body event scalar", recordBodyKeyEventBodyBytes, conformanceText("private-record-event"), ErrSchemaViolation},
+			{"record body digest algorithm scalar", recordBodyKeyEventDigestAlgorithm, conformanceBytes([]byte("private-record-algorithm")), ErrSchemaViolation},
+			{"record body digest scalar", recordBodyKeyEventDigest, conformanceText("private-record-digest"), ErrSchemaViolation},
+			{"record body signer scalar", recordBodyKeySignerKeyReference, conformanceBytes([]byte("private-record-signer")), ErrSchemaViolation},
+			{"record body signature algorithm scalar", recordBodyKeySignatureAlgorithm, conformanceBytes([]byte("private-signature-algorithm")), ErrSchemaViolation},
+			{"record body signature encoding scalar", recordBodyKeySignatureEncoding, conformanceBytes([]byte("private-signature-encoding")), ErrSchemaViolation},
+			{"record body signature scalar", recordBodyKeySignatureBytes, conformanceText("private-signature-bytes"), ErrSchemaViolation},
+			{"record body short event digest", recordBodyKeyEventDigest, conformanceBytes([]byte("private-short-event-digest")), ErrSchemaViolation},
+			{"record body long event digest", recordBodyKeyEventDigest, conformanceBytes(bytes.Repeat([]byte("p"), digestBytes+1)), ErrSchemaViolation},
+			{"record body empty signer", recordBodyKeySignerKeyReference, conformanceText(""), ErrSchemaViolation},
+			{"record body long signer", recordBodyKeySignerKeyReference, conformanceText(strings.Repeat("p", maxSignerReferenceBytes+1)), ErrSchemaViolation},
+			{"record body signature algorithm identifier", recordBodyKeySignatureAlgorithm, conformanceText("ecdsa-p256-sha512"), ErrSchemaViolation},
+			{"record body signature encoding identifier", recordBodyKeySignatureEncoding, conformanceText("raw"), ErrSchemaViolation},
+			{"record body short signature", recordBodyKeySignatureBytes, conformanceBytes([]byte("private")), ErrSchemaViolation},
+			{"record body long signature", recordBodyKeySignatureBytes, conformanceBytes(bytes.Repeat([]byte("p"), maxSignatureBytes+1)), ErrSchemaViolation},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				body := conformanceRecordBodyWithRawField(t, testGenesisRecordBodyWire(t), test.key, test.value)
+				input := conformanceOuterWithBody(t, body)
+				assertConformanceRejection(t, test.want, nil, func() error {
+					_, err := ValidateRecordStructure(input)
+					return err
+				})
+			})
+		}
+
+		for _, test := range []struct {
+			name  string
+			key   uint64
+			value []byte
+			want  error
+		}{
+			{"outer version two", ledgerRecordKeyVersion, []byte{0x02}, ErrUnsupportedVersion},
+			{"outer version scalar", ledgerRecordKeyVersion, conformanceText("private-outer-version"), ErrSchemaViolation},
+			{"outer body scalar", ledgerRecordKeyRecordBodyBytes, conformanceText("private-outer-body"), ErrSchemaViolation},
+			{"outer digest algorithm scalar", ledgerRecordKeyDigestAlgorithm, conformanceBytes([]byte("private-outer-algorithm")), ErrSchemaViolation},
+			{"outer digest scalar", ledgerRecordKeyDigest, conformanceText("private-outer-digest"), ErrSchemaViolation},
+			{"outer short digest", ledgerRecordKeyDigest, conformanceBytes([]byte("private-short-record-digest")), ErrSchemaViolation},
+			{"outer long digest", ledgerRecordKeyDigest, conformanceBytes(bytes.Repeat([]byte("p"), digestBytes+1)), ErrSchemaViolation},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				input := conformanceOuterWithRawField(t, test.key, test.value)
+				assertConformanceRejection(t, test.want, nil, func() error {
+					_, err := ValidateRecordStructure(input)
+					return err
+				})
+			})
+		}
+	})
+
+	t.Run("nested rejection privacy", func(t *testing.T) {
+		const (
+			payloadMarker      = "private-payload-marker"
+			signerMarker       = "private-signer-marker"
+			signatureMarker    = "private-signature-marker"
+			eventDigestMarker  = "private-event-digest-marker"
+			recordDigestMarker = "private-record-digest-marker"
+			eventBytesMarker   = "private-event-bytes-marker"
+			recordBytesMarker  = "private-record-bytes-marker"
+		)
+
+		payloadEvent := testGenesisEventBodyWire()
+		payloadEvent.PayloadBytes = conformanceText(payloadMarker)
+		payloadRecord, err := ValidateRecordStructure(conformanceRecord(t, testRecordBodyForEvent(t, payloadEvent)))
+		if err != nil {
+			t.Fatalf("ValidateRecordStructure payload marker: %v", err)
+		}
+		assertConformanceRejection(t, ErrSchemaViolation, []string{payloadMarker}, func() error {
+			return ValidateEventSemantics(payloadRecord.Event())
+		})
+
+		signerBody := testGenesisRecordBodyWire(t)
+		signerBody.SignerKeyReference = signerMarker
+		signerBody.SignatureAlgorithm = "invalid"
+		assertConformanceRejection(t, ErrSchemaViolation, []string{signerMarker}, func() error {
+			_, err := ValidateRecordStructure(conformanceRecord(t, signerBody))
+			return err
+		})
+
+		signatureBody := testGenesisRecordBodyWire(t)
+		signatureBody.SignatureBytes = []byte(signatureMarker)
+		signatureBody.SignatureEncoding = "raw"
+		assertConformanceRejection(t, ErrSchemaViolation, []string{signatureMarker}, func() error {
+			_, err := ValidateRecordStructure(conformanceRecord(t, signatureBody))
+			return err
+		})
+
+		eventDigestBody := testGenesisRecordBodyWire(t)
+		eventDigestBody.EventDigest = conformanceDigestMarker(eventDigestMarker)
+		assertConformanceRejection(t, ErrDigestMismatch, []string{eventDigestMarker}, func() error {
+			_, err := ValidateRecordStructure(conformanceRecord(t, eventDigestBody))
+			return err
+		})
+
+		recordDigest := conformanceDigestMarker(recordDigestMarker)
+		outer := testLedgerRecordWire(t, encodeRecordBodyForTest(t, testGenesisRecordBodyWire(t)))
+		outer.RecordDigest = recordDigest
+		assertConformanceRejection(t, ErrDigestMismatch, []string{recordDigestMarker}, func() error {
+			_, err := ValidateRecordStructure(encodeLedgerRecordForTest(t, outer))
+			return err
+		})
+
+		eventBytesBody := testGenesisRecordBodyWire(t)
+		eventBytesBody.EventBodyBytes = []byte(eventBytesMarker)
+		eventDigest := conformanceEventDigest(eventBytesBody.EventBodyBytes)
+		eventBytesBody.EventDigest = eventDigest[:]
+		assertConformanceRejection(t, ErrMalformedCBOR, []string{eventBytesMarker}, func() error {
+			_, err := ValidateRecordStructure(conformanceRecord(t, eventBytesBody))
+			return err
+		})
+
+		assertConformanceRejection(t, ErrMalformedCBOR, []string{recordBytesMarker}, func() error {
+			_, err := ValidateRecordStructure(conformanceOuterWithBody(t, []byte(recordBytesMarker)))
+			return err
+		})
+	})
+
 	t.Run("noncanonical known genesis remains layer-reachable", func(t *testing.T) {
 		noncanonicalPayload := []byte{0xa1, 0x18, 0x00, 0xf6}
 		event := testGenesisEventBodyWire()
 		event.PayloadBytes = noncanonicalPayload
-		structural, err := ValidateEventStructure(encodeEventBodyForTest(t, event))
+		record, err := ValidateRecordStructure(conformanceRecord(t, testRecordBodyForEvent(t, event)))
 		if err != nil {
-			t.Fatalf("ValidateEventStructure noncanonical payload: %v", err)
+			t.Fatalf("ValidateRecordStructure noncanonical payload: %v", err)
 		}
 		assertConformanceRejection(t, ErrNonConformingCBOR, nil, func() error {
-			return ValidateEventSemantics(structural)
+			return ValidateEventSemantics(record.Event())
 		})
 
 		noncanonicalEvent := conformanceReplaceFirst(genesisEvent, []byte{0x00, 0x01}, []byte{0x00, 0x18, 0x01})
@@ -321,11 +475,21 @@ func TestConformanceRejects(t *testing.T) {
 			{"unknown kind", func(w *eventBodyWire) { w.EventKind = 2 }, ErrUnsupportedEvent},
 			{"unknown payload version", func(w *eventBodyWire) { w.PayloadVersion = 2 }, ErrUnsupportedEvent},
 			{"nonempty payload", func(w *eventBodyWire) { w.PayloadBytes = []byte{0xa1, 0x00, 0x00} }, ErrSchemaViolation},
+			{"zero sequence", func(w *eventBodyWire) { w.Sequence = 0 }, ErrInvalidSequence},
+			{"zero event kind", func(w *eventBodyWire) { w.EventKind = 0 }, ErrSchemaViolation},
+			{"zero payload version", func(w *eventBodyWire) { w.PayloadVersion = 0 }, ErrSchemaViolation},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				wire := testGenesisEventBodyWire()
 				test.mutate(&wire)
 				event, err := ValidateEventStructure(encodeEventBodyForTest(t, wire))
+				if test.name == "zero sequence" || test.name == "zero event kind" || test.name == "zero payload version" {
+					assertConformanceRejection(t, test.want, nil, func() error {
+						_, err := ValidateRecordStructure(conformanceRecordWithEventBody(t, encodeEventBodyForTest(t, wire)))
+						return err
+					})
+					return
+				}
 				if err != nil {
 					t.Fatalf("ValidateEventStructure: %v", err)
 				}
@@ -365,6 +529,7 @@ func TestConformanceRejects(t *testing.T) {
 			{"missing predecessor", state, newUnknownRecord(t, genesis.Event().LedgerID(), 2, nil, 0), ErrChainLinkMismatch},
 			{"wrong predecessor", state, newUnknownRecord(t, genesis.Event().LedgerID(), 2, make([]byte, digestBytes), 0), ErrChainLinkMismatch},
 			{"overflow", ChainState{initialized: true, ledgerID: genesis.Event().LedgerID(), lastSequence: ^uint64(0), lastRecordDigest: genesis.RecordDigest()}, newUnknownContinuationRecord(t, genesis, 2, 0), ErrInvalidSequence},
+			{"zero structural record", ChainState{}, StructuralRecord{}, ErrSchemaViolation},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				before := test.state
@@ -439,6 +604,16 @@ func conformanceRecordWithEventBody(t *testing.T, eventBody []byte) []byte {
 	return conformanceRecord(t, body)
 }
 
+func testRecordBodyForEvent(t *testing.T, eventWire eventBodyWire) recordBodyWire {
+	t.Helper()
+	eventBody := encodeEventBodyForTest(t, eventWire)
+	body := testGenesisRecordBodyWire(t)
+	body.EventBodyBytes = eventBody
+	digest := conformanceEventDigest(eventBody)
+	body.EventDigest = digest[:]
+	return body
+}
+
 func conformanceRecordWithRawField(t *testing.T, key uint64, value []byte) []byte {
 	t.Helper()
 	body := conformanceRecordBodyWithRawField(t, testGenesisRecordBodyWire(t), key, value)
@@ -495,13 +670,13 @@ func conformanceDuplicateFirstMapKey(t *testing.T, encoded []byte) []byte {
 	t.Helper()
 	values := conformanceRawMap(t, encoded)
 	keys := conformanceSortedKeys(values)
-	return conformanceEncodeRawMapPairs(t, values, append(keys, keys[0]))
+	duplicate := keys[0]
+	return conformanceEncodeRawMapPairs(t, values, append([]uint64{duplicate}, keys...))
 }
 
 func conformanceUnknownMapKey(t *testing.T, encoded []byte) []byte {
 	t.Helper()
 	values := conformanceRawMap(t, encoded)
-	delete(values, 0)
 	values[99] = []byte{0x01}
 	return conformanceEncodeRawMap(t, values, nil)
 }
@@ -536,10 +711,26 @@ func conformanceReplaceFirst(encoded, old, new []byte) []byte {
 }
 
 func conformanceText(value string) []byte {
-	if len(value) > 23 {
-		panic("conformance text must use a short CBOR header")
+	encoded := conformanceStringHeader(0x60, len(value))
+	return append(encoded, value...)
+}
+
+func conformanceBytes(value []byte) []byte {
+	encoded := conformanceStringHeader(0x40, len(value))
+	return append(encoded, value...)
+}
+
+func conformanceStringHeader(majorType byte, length int) []byte {
+	switch {
+	case length <= 23:
+		return []byte{majorType | byte(length)}
+	case length <= 0xff:
+		return []byte{majorType | 24, byte(length)}
+	case length <= 0xffff:
+		return []byte{majorType | 25, byte(length >> 8), byte(length)}
+	default:
+		panic("conformance test string exceeds uint16 length")
 	}
-	return append([]byte{0x60 | byte(len(value))}, value...)
 }
 
 func conformanceRawMap(t *testing.T, encoded []byte) map[uint64]cbor.RawMessage {
@@ -597,4 +788,10 @@ func conformanceEventDigest(body []byte) Digest {
 func conformanceRecordDigest(body []byte) Digest {
 	preimage := append([]byte(domainRecordDigestV1+string(recordDigestDomainSeparator)), body...)
 	return Digest(sha256.Sum256(preimage))
+}
+
+func conformanceDigestMarker(marker string) []byte {
+	digest := make([]byte, digestBytes)
+	copy(digest, marker)
+	return digest
 }
