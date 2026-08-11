@@ -84,6 +84,15 @@ func decodeCanonicalMap(
 	if err := protocolDecMode.Unmarshal(encoded, destination); err != nil {
 		return wrapValidationError(stage, classifyDecodeError(err))
 	}
+	// Typed re-encoding rejects values such as null that decode as a no-op into
+	// a required Go field, while preserving null for explicitly nullable fields.
+	typedReencoded, err := protocolEncMode.Marshal(destination)
+	if err != nil {
+		return wrapValidationError(stage, ErrSchemaViolation)
+	}
+	if !bytes.Equal(encoded, typedReencoded) {
+		return wrapValidationError(stage, ErrNonConformingCBOR)
+	}
 	return nil
 }
 
@@ -91,8 +100,15 @@ func hasExactKeys(values map[uint64]cbor.RawMessage, expectedKeys []uint64) bool
 	if len(values) != len(expectedKeys) {
 		return false
 	}
+	expected := make(map[uint64]struct{}, len(expectedKeys))
 	for _, key := range expectedKeys {
-		if _, ok := values[key]; !ok {
+		if _, exists := expected[key]; exists {
+			return false
+		}
+		expected[key] = struct{}{}
+	}
+	for key := range values {
+		if _, ok := expected[key]; !ok {
 			return false
 		}
 	}

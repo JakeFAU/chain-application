@@ -1,6 +1,7 @@
 package ledgerv1
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -8,6 +9,22 @@ import (
 
 type codecTestWire struct {
 	Value uint64 `cbor:"0,keyasint"`
+}
+
+type nullableCodecTestWire struct {
+	Value *uint64 `cbor:"0,keyasint"`
+}
+
+type codecThreeFieldWire struct {
+	First  uint64 `cbor:"0,keyasint"`
+	Second uint64 `cbor:"1,keyasint"`
+	Third  uint64 `cbor:"2,keyasint"`
+}
+
+type failingCodecMarshaler struct{}
+
+func (failingCodecMarshaler) MarshalCBOR() ([]byte, error) {
+	return nil, errors.New("private-marker")
 }
 
 func TestDecodeCanonicalMapAcceptsExactEncoding(t *testing.T) {
@@ -129,5 +146,95 @@ func TestDecodeCanonicalMapRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("error text leaked private marker: %q", err)
 			}
 		})
+	}
+}
+
+func TestDecodeCanonicalMapRejectsNullWhereSchemaRequiresMapOrUnsignedInteger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		encoded      []byte
+		expectedKeys []uint64
+		destination  any
+	}{
+		{
+			name:         "top-level null",
+			encoded:      []byte{0xf6},
+			expectedKeys: []uint64{},
+			destination:  &struct{}{},
+		},
+		{
+			name:         "required unsigned integer null",
+			encoded:      []byte{0xa1, 0x00, 0xf6},
+			expectedKeys: []uint64{0},
+			destination:  &codecTestWire{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := decodeCanonicalMap(test.encoded, 32, test.expectedKeys, test.destination, "test")
+			if !errors.Is(err, ErrNonConformingCBOR) {
+				t.Fatalf("error = %v, want ErrNonConformingCBOR", err)
+			}
+		})
+	}
+}
+
+func TestDecodeCanonicalMapAcceptsNullForExplicitlyNullableField(t *testing.T) {
+	t.Parallel()
+
+	var decoded nullableCodecTestWire
+	err := decodeCanonicalMap([]byte{0xa1, 0x00, 0xf6}, 32, []uint64{0}, &decoded, "test")
+	if err != nil {
+		t.Fatalf("decodeCanonicalMap: %v", err)
+	}
+	if decoded.Value != nil {
+		t.Fatalf("value = %v, want nil", *decoded.Value)
+	}
+}
+
+func TestDecodeCanonicalMapRejectsDuplicateExpectedKeys(t *testing.T) {
+	t.Parallel()
+
+	encoded := []byte{0xa3, 0x00, 0x01, 0x01, 0x01, 0x02, 0x01}
+	err := decodeCanonicalMap(encoded, len(encoded), []uint64{0, 1, 1}, &codecThreeFieldWire{}, "test")
+	if !errors.Is(err, ErrSchemaViolation) {
+		t.Fatalf("error = %v, want ErrSchemaViolation", err)
+	}
+}
+
+func TestEncodeCanonicalProducesCoreDeterministicBytes(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := encodeCanonical(map[uint64]uint64{1: 1, 0: 1}, 32, "test")
+	if err != nil {
+		t.Fatalf("encodeCanonical: %v", err)
+	}
+	want := []byte{0xa2, 0x00, 0x01, 0x01, 0x01}
+	if !bytes.Equal(encoded, want) {
+		t.Fatalf("encoded = %x, want %x", encoded, want)
+	}
+}
+
+func TestEncodeCanonicalRejectsOversizedOutput(t *testing.T) {
+	t.Parallel()
+
+	_, err := encodeCanonical([]byte{0x00}, 1, "test")
+	if !errors.Is(err, ErrOversizedInput) {
+		t.Fatalf("error = %v, want ErrOversizedInput", err)
+	}
+}
+
+func TestEncodeCanonicalSanitizesMarshalerFailure(t *testing.T) {
+	t.Parallel()
+
+	_, err := encodeCanonical(failingCodecMarshaler{}, 32, "test")
+	if !errors.Is(err, ErrSchemaViolation) {
+		t.Fatalf("error = %v, want ErrSchemaViolation", err)
+	}
+	if strings.Contains(err.Error(), "private-marker") || strings.Contains(err.Error(), "cbor:") {
+		t.Fatalf("error text leaked private marshaler detail: %q", err)
 	}
 }
