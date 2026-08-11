@@ -26,7 +26,7 @@ trust:
 - an explicit genesis record;
 - exact logical ledger ordering and predecessor-link rules;
 - bounded parsing of untrusted bytes;
-- structural chain verification; and
+- structural chain consistency validation; and
 - stable, language-neutral conformance vectors.
 
 The result proves attributable bytes, integrity, ordering, and structural
@@ -42,7 +42,7 @@ validity. It does not prove that claim content is true.
 - Construction of a genesis event from explicit deterministic inputs.
 - Event-digest and record-digest calculation.
 - Strict parsing and validation at every encoded boundary.
-- Structural verification of ledger identity, sequence, and predecessor links.
+- Structural validation of ledger identity, sequence, and predecessor links.
 - Semantic replay of the only supported event, `ledger_initialized/v1`.
 - Exact golden vectors, negative conformance tests, and fuzz targets.
 - One bounded third-party CBOR implementation behind a package-local boundary.
@@ -157,8 +157,10 @@ Every version 1 value must satisfy all of these rules:
   semantic meaning. Version 1 genesis uses no arrays.
 - Each byte string documented as embedded CBOR contains exactly one complete
   deterministic-CBOR data item with no leading or trailing bytes.
-- Every size and nesting bound is enforced before a size-dependent decode,
-  copy, or hash operation proceeds.
+- Every externally supplied encoded container is bounded before decoding.
+  Embedded byte strings are length-checked immediately after their enclosing
+  field is structurally decoded and before they are independently decoded,
+  copied into durable validated state, or hashed.
 - An accepted encoded value re-encodes to the exact input bytes. Parsing never
   normalizes non-conforming input and never rehashes a normalized substitute.
 
@@ -252,9 +254,10 @@ timestamps to establish order and never reads the wall clock.
 | `6` | `signature_encoding` | Text exactly `asn1-der`. |
 | `7` | `signature_bytes` | 8 through 72 bytes, structurally opaque in this slice. |
 
-The 8-through-72-byte bound is only an outer P-256 DER signature envelope
-bound. Passing it does not mean the bytes are well-formed DER, contain valid
-P-256 scalars, satisfy a future low-S rule, or verify cryptographically.
+The 8-through-72-byte limit is only a defensive representation bound for bytes
+declared to be an ASN.1 DER-encoded P-256 signature. Passing it does not
+establish that the bytes contain a DER object, valid P-256 scalars, a value that
+satisfies a future low-S rule, or a cryptographically valid signature.
 
 ### Complete ledger record
 
@@ -267,6 +270,10 @@ P-256 scalars, satisfy a future low-S rule, or verify cryptographically.
 
 The complete encoded ledger record is limited to 131,200 bytes. All limits are
 version 1 protocol rules, not runtime configuration.
+
+The nested container limits are defensive upper bounds and need not be
+reachable by a schema-valid version 1 value. Schema-specific validation can
+and does impose tighter effective limits.
 
 Large documents, media, or data are not embedded in the ledger. A future event
 may attest to a content digest and bounded retrieval URL, such as a bucket
@@ -296,7 +303,7 @@ validated deterministic-CBOR encoding, not a Go value or a re-encoding of
 untrusted bytes. The digest is exactly 32 bytes.
 
 The event digest algorithm identifier is exactly `sha-256`. A version 1
-verifier rejects every other identifier. Algorithm selection is a protocol
+validator rejects every other identifier. Algorithm selection is a protocol
 version property and never runtime input. A future digest construction requires
 a new protocol and domain definition, such as version 2; version 1 is never
 extended by negotiating another algorithm.
@@ -306,13 +313,18 @@ extended by negotiating another algorithm.
 The version 1 signature operation consumes the event digest directly:
 
 ```text
-signature = ECDSA_P256(private_key, event_digest)
+signature =
+    ECDSA_P256_SignDigest(
+        private_key,
+        event_digest
+    )
 ```
 
-There is no additional protocol-level hash of `event_digest`. For Google Cloud
-KMS `EC_SIGN_P256_SHA256`, the later signer supplies these 32 bytes through the
-SHA-256 digest field. The signature returned by KMS is preserved exactly in its
-ASN.1 DER encoding.
+`event_digest` is the exact 32-byte ECDSA message representative supplied to
+the signing operation. The protocol must not hash it again before ECDSA
+signing. For Google Cloud KMS `EC_SIGN_P256_SHA256`, the later signer supplies
+these 32 bytes through the SHA-256 digest field. The signature returned by KMS
+is preserved exactly in its ASN.1 DER encoding.
 
 The version 1 metadata identifiers are fixed:
 
@@ -414,19 +426,29 @@ phases have passed.
 
 1. Reject a complete input larger than 131,200 bytes before decoding it.
 2. Strictly validate the outer map, its exact keys and types, record version,
-   digest identifier, and digest length.
-3. Reject an embedded record body larger than 131,072 bytes.
-4. Strictly validate the exact record-body bytes and their fixed identifiers,
-   field bounds, and closed map.
-5. Recompute the record digest from the exact record-body bytes and require an
-   exact match.
-6. Reject an embedded event body larger than 98,304 bytes, then strictly
-   validate its profile, map, field types, versions, and field bounds.
-7. Recompute the event digest from the exact event-body bytes and require an
-   exact match.
-8. Select the payload schema using `(event_kind, payload_version)`, reject a
-   payload over 65,536 bytes, and validate the exact embedded payload bytes.
-9. Apply genesis or continuation cross-field rules.
+   digest identifier, and digest length, and immediately reject an embedded
+   record body larger than 131,072 bytes.
+3. Deterministically re-encode the validated outer value and require exact
+   byte equality with the supplied complete record.
+4. Strictly validate the exact record-body bytes, their closed map, fixed
+   identifiers, field bounds, and the 98,304-byte event-body limit.
+5. Deterministically re-encode the validated record body and require exact byte
+   equality, then recompute its record digest and require an exact match.
+6. Strictly validate the exact event-body bytes, their closed map, field types,
+   versions, field bounds, and the 65,536-byte payload limit.
+7. Deterministically re-encode the validated event body and require exact byte
+   equality, then recompute its event digest and require an exact match.
+8. Select the payload schema using `(event_kind, payload_version)`, strictly
+   validate the exact embedded payload bytes, and require byte equality after
+   deterministic re-encoding.
+9. Apply supported event-specific semantic rules, including the exact genesis
+   payload and genesis cross-field requirements.
+
+Steps 1 through 7 yield a structurally validated record independently of event
+semantics. Chain consistency validation may consume that result. Steps 8 and 9
+establish supported semantics in a separate operation. For an unknown event,
+that operation returns the typed unsupported-event error while the prior
+structural result remains usable.
 
 No phase rewrites bytes for a later phase. Digest checks always use the exact
 validated bytes carried by the containing structure.
@@ -437,20 +459,20 @@ validation and replay then stop with a typed unsupported-event error. This
 allows tooling to preserve and structurally inspect future records without
 silently assigning them version 1 meaning.
 
-## Logical Ordering and Structural Chain Verification
+## Logical Ordering and Chain Consistency Validation
 
 Version 1 defines one global logical ledger sequence and one record-digest
 chain. Physical PostgreSQL partitioning, indexing, or sharding may later change
 storage layout but never changes the logical order or replay input.
 
-Structural chain state contains only:
+Chain consistency state contains only:
 
 - whether genesis has been observed;
 - the 32-byte ledger ID;
 - the last sequence; and
 - the last record digest.
 
-For genesis, structural verification requires:
+For genesis, chain consistency validation requires:
 
 - no prior state;
 - sequence exactly 1;
@@ -459,7 +481,7 @@ For genesis, structural verification requires:
 - payload version exactly 1; and
 - the exact empty-map payload.
 
-For every continuation, structural verification requires:
+For every continuation, chain consistency validation requires:
 
 - initialized state;
 - the exact same ledger ID;
@@ -491,8 +513,11 @@ ordered record stream, and unstable map iteration.
 
 ## Truthful Validation Results
 
-The package exposes specific evidence rather than one misleading `Valid` or
-`Verified` boolean. Callers must be able to distinguish:
+The package exposes specific evidence rather than one misleading aggregate
+`Valid` or `Verified` boolean. Protocol API and type names reserve `verify` and
+`verified` for the later cryptographic signature-verification boundary;
+structure, digest, and chain operations use `validate`, `validated`, or
+`consistency`. Callers must be able to distinguish:
 
 - canonical structure validated;
 - record digest validated;
@@ -500,6 +525,11 @@ The package exposes specific evidence rather than one misleading `Valid` or
 - chain link validated;
 - supported payload semantics validated; and
 - signature not verified.
+
+Conceptually, those results correspond to `StructureValid`,
+`RecordDigestValid`, `EventDigestValid`, `ChainLinkValid`, `SemanticsValid`, and
+`SignatureStatus = Unverified`. The implementation plan may refine the Go
+shape without weakening these distinctions.
 
 No API, type, test, log, or documentation may describe a record as
 cryptographically verified merely because its bytes, hashes, and chain links
@@ -539,11 +569,26 @@ UTF-8 validation, tag controls, and decoder resource controls. Hand-writing a
 general CBOR codec would add protocol and security risk without adding a
 required capability.
 
-The package constructs one immutable explicit encoding mode and one immutable
-strict decoding mode. It does not use library defaults. The implementation
+The package constructs one immutable explicit encoding mode from
+`CoreDetEncOptions()` and one immutable strict decoding mode assembled from
+explicit decoder options. It does not use library defaults. The implementation
 must set every relevant option deliberately and add protocol validation for any
 rule the library does not express directly, including closed integer-keyed maps
 and unsupported CBOR primitive types.
+
+The decoder's structural restrictions are necessary but not sufficient to
+establish deterministic encoding. After schema validation, each accepted item
+must be encoded using the protocol's immutable Core Deterministic encoding mode
+and compared byte-for-byte with the supplied encoding. A mismatch is
+non-conforming CBOR. In compact form, subject to prior schema and type
+validation:
+
+```text
+accept(x) implies deterministic_encode(decode(x)) == x
+```
+
+This byte-equality check is a protocol requirement, independent of whether a
+future dependency version adds more decode-time deterministic checks.
 
 No dependency type escapes the package. The committed CDDL, normative prose,
 and golden bytes remain authoritative, so the implementation can replace the
