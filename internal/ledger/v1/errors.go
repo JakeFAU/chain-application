@@ -21,12 +21,13 @@ var (
 type validationStage string
 
 const (
-	stageEncoding     validationStage = "encoding"
-	stageDecoding     validationStage = "decoding"
-	stageEventBody    validationStage = "event body"
-	stageRecordBody   validationStage = "record body"
-	stageLedgerRecord validationStage = "ledger record"
-	stagePayload      validationStage = "payload"
+	stageEncoding         validationStage = "encoding"
+	stageDecoding         validationStage = "decoding"
+	stageEventBody        validationStage = "event body"
+	stageRecordBody       validationStage = "record body"
+	stageLedgerRecord     validationStage = "ledger record"
+	stagePayload          validationStage = "payload"
+	stageChainConsistency validationStage = "chain consistency"
 )
 
 func wrapValidationError(stage validationStage, err error) error {
@@ -35,7 +36,7 @@ func wrapValidationError(stage validationStage, err error) error {
 
 func safeStageLabel(stage validationStage) string {
 	switch stage {
-	case stageEncoding, stageDecoding, stageEventBody, stageRecordBody, stageLedgerRecord, stagePayload:
+	case stageEncoding, stageDecoding, stageEventBody, stageRecordBody, stageLedgerRecord, stagePayload, stageChainConsistency:
 		return string(stage)
 	default:
 		return "validation"
