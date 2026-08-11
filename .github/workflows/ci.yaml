@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.5"
+          cache: true
+      - name: Install pinned tools
+        run: make tools
+      - name: Run repository checks
+        run: make check
+      - name: Validate local PostgreSQL configuration
+        run: docker compose --env-file .env.example config --quiet
+      - name: Build container
+        run: docker build --build-arg BUILD_VERSION=${{ github.sha }} .

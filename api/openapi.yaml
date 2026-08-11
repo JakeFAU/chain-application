@@ -1,0 +1,25 @@
+openapi: 3.1.1
+info:
+  title: Attribution Chain API
+  version: 0.1.0
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthzResponse"
+components:
+  schemas:
+    HealthzResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]

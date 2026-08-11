@@ -100,9 +100,11 @@ lacks an explicit owner and termination path.
 
 Configuration is loaded once through an injected environment lookup and passed
 as typed values. It includes the HTTP port, shutdown timeout, Zap level,
-OpenTelemetry enabled flag, OTLP endpoint, and service name. Defaults are
-explicit and local-safe. Invalid booleans, durations, ports, log levels, and an
-enabled exporter without an endpoint fail before the listener opens.
+OpenTelemetry enabled flag, trace sample ratio, OTLP endpoint, and service name.
+Defaults are explicit and local-safe. The trace sample ratio defaults to `1.0`
+and accepts only finite values from `0` through `1`. Invalid booleans,
+durations, ports, log levels, sample ratios, and an enabled exporter without an
+endpoint fail before the listener opens.
 
 No credentials or private values have defaults. Future provider settings remain
 out of scope rather than being represented by unused configuration fields.
@@ -123,6 +125,13 @@ OTLP/gRPC to an explicitly configured endpoint; the future Cloud Run default is
 `http://localhost:4317` for the Google-built Collector sidecar. The localhost
 connection may be insecure because it never leaves the instance. Exporter
 shutdown is bounded and joined with other owned cleanup errors.
+
+Trace sampling is supplied explicitly as parent-based ratio sampling. Valid
+upstream sampled and unsampled decisions are honored, while the configured
+ratio applies to new root traces. Ambient `OTEL_TRACES_SAMPLER` and
+`OTEL_TRACES_SAMPLER_ARG` values do not alter this application-owned policy;
+when telemetry is enabled, their presence is rejected during typed startup
+configuration before the OpenTelemetry SDK is constructed.
 
 Logs rely on Cloud Run's automatic stdout/stderr ingestion rather than an OTel
 log exporter, logging agent, or Cloud Logging client. Grafana, Prometheus,

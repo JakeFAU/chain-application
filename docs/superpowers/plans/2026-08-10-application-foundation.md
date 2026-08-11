@@ -298,6 +298,7 @@ components:
   schemas:
     HealthzResponse:
       type: object
+      additionalProperties: false
       required: [status]
       properties:
         status:
@@ -359,12 +360,25 @@ func TestHealthzReturnsContractResponse(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want application/json", contentType)
 	}
 
-	var response HealthzResponse
+	var response map[string]json.RawMessage
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Status != healthStatus {
-		t.Fatalf("status body = %q, want %q", response.Status, healthStatus)
+	if len(response) != 1 {
+		t.Fatalf("response members = %d, want 1", len(response))
+	}
+
+	status, ok := response["status"]
+	if !ok {
+		t.Fatal("response is missing status")
+	}
+
+	var value string
+	if err := json.Unmarshal(status, &value); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if value != "ok" {
+		t.Fatalf("status body = %q, want %q", value, "ok")
 	}
 }
 ```
