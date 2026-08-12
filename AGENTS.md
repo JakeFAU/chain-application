@@ -12,12 +12,22 @@ service.
 
 ## Current Status and Scope
 
-As of 2026-08-10, this initialized repository contains the approved application
+As of 2026-08-11, this initialized repository contains the approved application
 foundation: a Go module, one OpenAPI-defined health endpoint, typed startup
 configuration, Zap and OpenTelemetry lifecycle, local PostgreSQL/dbmate tooling,
-a static non-root container, and credential-free CI. It contains no domain or
-ledger behavior, application database schema, deployment, or live cloud
-acceptance.
+a static non-root container, and credential-free CI. It also contains a pure
+version 1 ledger protocol kernel: CDDL-authoritative deterministic CBOR,
+structural event and admitted-record validation, distinct event and record
+digests, genesis-only semantic replay, unknown-event structural inspection,
+fixed algorithms, golden vectors, and bounded fuzz targets. Decoded protocol
+values must re-encode exactly to the accepted bytes. Signature bytes are
+structurally unverified; this does not establish DER validity, low-S policy, or
+cryptographic signature authenticity.
+
+PostgreSQL ledger schema, admission and persistence, KMS signing, cryptographic
+signature verification, non-genesis domain events, application API behavior,
+deployment, and live acceptance remain absent. Local database and container
+tooling do not establish a ledger database, hosted CI, cloud, or live acceptance.
 
 This repository owns the Go 1.26+ application: authoritative domain policy, the
 HTTP API implementation, ledger admission and replay behavior, and
@@ -149,14 +159,16 @@ checks.
 `make tools` installs the repository-pinned Staticcheck and govulncheck
 binaries under ignored `./bin`. `make fmt`, `make fmt-check`, `make vet`,
 `make staticcheck`, `make test`, `make test-race`, `make generate`,
-`make generate-check`, `make build`, `make check`, `make db-config`, the
-database targets, `make container-build`, and `make container-smoke` are
-operational. `make fmt` and `make generate` intentionally rewrite source;
-`make check` does not rewrite tracked source. Container and database targets
-require Docker, migration targets require dbmate and the local database, and
-container smoke also requires `curl`. Tool installation and vulnerability
-database access may require network access. Do not report any command as
-passing before it has been run and its output checked.
+`make generate-check`, `make build`, `make check`, `make fuzz-protocol`,
+`make db-config`, the database targets, `make container-build`, and
+`make container-smoke` are operational. `make fmt` and `make generate`
+intentionally rewrite source; `make check` does not rewrite tracked source.
+`make fuzz-protocol` runs bounded fuzzing of the version 1 structural event,
+record, and chain validators; it does not cryptographically verify signatures.
+Container and database targets require Docker, migration targets require dbmate
+and the local database, and container smoke also requires `curl`. Tool
+installation and vulnerability database access may require network access. Do
+not report any command as passing before it has been run and its output checked.
 
 The key version checks are:
 
