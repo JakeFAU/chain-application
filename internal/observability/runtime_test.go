@@ -142,6 +142,44 @@ func TestDisabledRuntimeWrapHTTPUsesBoundedTelemetry(t *testing.T) {
 	}
 }
 
+func TestTelemetryRequestClearsRequestControlledFields(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/subjects/private-id-123?token=private-query-456",
+		strings.NewReader("private-body-012"),
+	)
+	request.Header.Set("User-Agent", "private-agent-789")
+	request.RemoteAddr = "203.0.113.42:54321"
+	request.Trailer = http.Header{"X-Private-Trailer": []string{"private-trailer-345"}}
+
+	sanitized := telemetryRequest(context.Background(), request, []string{"Traceparent"})
+
+	// The telemetry clone must carry no request-controlled value, regardless of
+	// which fields downstream instrumentation happens to read today.
+	checks := []struct {
+		field string
+		value string
+	}{
+		{field: "RequestURI", value: sanitized.RequestURI},
+		{field: "URL", value: sanitized.URL.String()},
+		{field: "Host", value: sanitized.Host},
+		{field: "RemoteAddr", value: sanitized.RemoteAddr},
+	}
+	for _, check := range checks {
+		if check.value != "" {
+			t.Errorf("%s = %q, want empty", check.field, check.value)
+		}
+	}
+	if len(sanitized.Trailer) != 0 {
+		t.Errorf("Trailer = %v, want no entries", sanitized.Trailer)
+	}
+	if len(sanitized.Header) != 0 {
+		t.Errorf("Header = %v, want no non-propagation entries", sanitized.Header)
+	}
+}
+
 func TestDisabledRuntimeW3CPropagationWins(t *testing.T) {
 	t.Parallel()
 
