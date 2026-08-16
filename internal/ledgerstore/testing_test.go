@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	ledgerv1 "github.com/JakeFAU/chain-application/internal/ledger/v1"
+	"github.com/fxamacker/cbor/v2"
 )
 
 const testDatabaseURLEnvironment = "CHAIN_TEST_DATABASE_URL"
@@ -65,4 +66,58 @@ func newTestGenesisRecord(t *testing.T, ledgerID ledgerv1.LedgerID) ledgerv1.Str
 		t.Fatalf("NewRecord: %v", err)
 	}
 	return record
+}
+
+// newTestContinuationRecord builds a record whose event references an
+// arbitrary predecessor, which version 1 semantics reject but the structural
+// layer stores.
+func newTestContinuationRecord(
+	t *testing.T,
+	ledgerID ledgerv1.LedgerID,
+	sequence uint64,
+	previousRecordDigest ledgerv1.Digest,
+) ledgerv1.StructuralRecord {
+	t.Helper()
+
+	encoded := encodeContinuationEventForTest(t, ledgerID, sequence, previousRecordDigest)
+	event, err := ledgerv1.ValidateEventStructure(encoded)
+	if err != nil {
+		t.Fatalf("ValidateEventStructure: %v", err)
+	}
+	record, err := ledgerv1.NewRecord(event, "test-signer-key-reference", make([]byte, 70))
+	if err != nil {
+		t.Fatalf("NewRecord: %v", err)
+	}
+	return record
+}
+
+// encodeContinuationEventForTest produces canonical CBOR for an event body
+// with keys 0 through 7, using the same core deterministic encoding mode the
+// protocol uses.
+func encodeContinuationEventForTest(
+	t *testing.T,
+	ledgerID ledgerv1.LedgerID,
+	sequence uint64,
+	previousRecordDigest ledgerv1.Digest,
+) []byte {
+	t.Helper()
+
+	mode, err := cbor.CoreDetEncOptions().EncMode()
+	if err != nil {
+		t.Fatalf("EncMode: %v", err)
+	}
+	encoded, err := mode.Marshal(map[uint64]any{
+		0: uint64(1),
+		1: ledgerID[:],
+		2: sequence,
+		3: previousRecordDigest[:],
+		4: uint64(1_755_000_000_000),
+		5: uint64(1),
+		6: uint64(1),
+		7: []byte{0xa0},
+	})
+	if err != nil {
+		t.Fatalf("marshal continuation event: %v", err)
+	}
+	return encoded
 }

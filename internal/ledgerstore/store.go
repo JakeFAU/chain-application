@@ -5,6 +5,7 @@ package ledgerstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -71,6 +72,9 @@ func (store *Store) Append(ctx context.Context, record ledgerv1.StructuralRecord
 		record.Bytes(),
 	)
 	if err != nil {
+		if classified := classifyAppendError(err); !errors.Is(classified, err) {
+			return classified
+		}
 		return fmt.Errorf("append ledger record: %w", err)
 	}
 	return nil
