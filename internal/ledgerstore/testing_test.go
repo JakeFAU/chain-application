@@ -3,6 +3,7 @@ package ledgerstore
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"os"
 	"testing"
 
@@ -40,16 +41,16 @@ var testRunSalt = func() [8]byte {
 	return salt
 }()
 
-// newTestLedgerID returns a ledger ID unique to this test and this run, so
-// tests sharing one database never collide with each other or with rows left
-// by an earlier run.
+// newTestLedgerID returns a ledger ID unique to this test and this run. The
+// name and the run salt both feed a digest so that subtests sharing a long
+// name prefix cannot collide, and rows left by an earlier run cannot either.
+// ledger_record is append-only and cannot be truncated, so a collision is
+// unrecoverable.
 func newTestLedgerID(t *testing.T) ledgerv1.LedgerID {
 	t.Helper()
 
-	var ledgerID ledgerv1.LedgerID
-	copy(ledgerID[:], t.Name())
-	copy(ledgerID[len(ledgerID)-len(testRunSalt):], testRunSalt[:])
-	return ledgerID
+	digest := sha256.Sum256(append([]byte(t.Name()), testRunSalt[:]...))
+	return ledgerv1.LedgerID(digest)
 }
 
 func newTestGenesisRecord(t *testing.T, ledgerID ledgerv1.LedgerID) ledgerv1.StructuralRecord {
