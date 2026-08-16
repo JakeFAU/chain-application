@@ -1,9 +1,6 @@
 package ledgerv1
 
-import (
-	"bytes"
-	"crypto/sha256"
-)
+import "bytes"
 
 type StructuralEvent struct {
 	bytes                   []byte
@@ -190,9 +187,5 @@ func validateLedgerInitializedPayload(payloadBytes []byte) error {
 }
 
 func digestEventBody(eventBodyBytes []byte) Digest {
-	preimage := make([]byte, 0, len(domainEventDigestV1)+1+len(eventBodyBytes))
-	preimage = append(preimage, domainEventDigestV1...)
-	preimage = append(preimage, eventDigestDomainSeparator)
-	preimage = append(preimage, eventBodyBytes...)
-	return Digest(sha256.Sum256(preimage))
+	return domainSeparatedDigest(domainEventDigestV1, eventBodyBytes)
 }

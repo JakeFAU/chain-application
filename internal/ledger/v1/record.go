@@ -1,11 +1,6 @@
 package ledgerv1
 
-import (
-	"bytes"
-	"crypto/sha256"
-)
-
-const recordDigestDomainSeparator byte = 0
+import "bytes"
 
 type StructuralRecord struct {
 	bytes              []byte
@@ -169,6 +164,8 @@ func (record StructuralRecord) SignatureBytes() []byte {
 	return bytes.Clone(record.signatureBytes)
 }
 
+// SignatureStatus reports the record's cryptographic verification status.
+// Version 1 does not verify signatures, so this always returns SignatureStatusUnverified.
 func (record StructuralRecord) SignatureStatus() SignatureStatus {
 	return SignatureStatusUnverified
 }
@@ -225,9 +222,5 @@ func isValidSignatureLength(signatureBytes []byte) bool {
 }
 
 func digestRecordBody(recordBodyBytes []byte) Digest {
-	preimage := make([]byte, 0, len(domainRecordDigestV1)+1+len(recordBodyBytes))
-	preimage = append(preimage, domainRecordDigestV1...)
-	preimage = append(preimage, recordDigestDomainSeparator)
-	preimage = append(preimage, recordBodyBytes...)
-	return Digest(sha256.Sum256(preimage))
+	return domainSeparatedDigest(domainRecordDigestV1, recordBodyBytes)
 }
