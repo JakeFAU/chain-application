@@ -1,0 +1,33 @@
+ledger-record-v1 = {
+  0: 1,
+  1: bstr .size (1..131072),
+  2: "sha-256",
+  3: bstr .size 32
+}
+
+record-body-v1 = {
+  0: 1,
+  1: bstr .size (1..98304),
+  2: "sha-256",
+  3: bstr .size 32,
+  4: tstr .size (1..512),
+  5: "ecdsa-p256-sha256",
+  6: "asn1-der",
+  7: bstr .size (8..72)
+}
+
+event-body-v1 = {
+  0: 1,
+  1: bstr .size 32,
+  2: positive-uint64,
+  3: null / bstr .size 32,
+  4: uint64,
+  5: positive-uint64,
+  6: positive-uint64,
+  7: bstr .size (1..65536)
+}
+
+ledger-initialized-payload-v1 = {}
+
+uint64 = 0..18446744073709551615
+positive-uint64 = 1..18446744073709551615
