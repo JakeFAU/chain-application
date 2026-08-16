@@ -2,6 +2,7 @@ package ledgerstore
 
 import (
 	"context"
+	"crypto/rand"
 	"os"
 	"testing"
 
@@ -28,14 +29,26 @@ func openTestStore(t *testing.T) *Store {
 	return store
 }
 
-// newTestLedgerID returns a distinct ledger ID per test so tests sharing one
-// database never collide on the sequence uniqueness constraint.
+// testRunSalt makes ledger IDs unique per test run. ledger_record is
+// append-only and cannot be truncated, so a fixed ID would collide with rows
+// left by an earlier run against the same database.
+var testRunSalt = func() [8]byte {
+	var salt [8]byte
+	if _, err := rand.Read(salt[:]); err != nil {
+		panic("generate test run salt: " + err.Error())
+	}
+	return salt
+}()
+
+// newTestLedgerID returns a ledger ID unique to this test and this run, so
+// tests sharing one database never collide with each other or with rows left
+// by an earlier run.
 func newTestLedgerID(t *testing.T) ledgerv1.LedgerID {
 	t.Helper()
 
 	var ledgerID ledgerv1.LedgerID
 	copy(ledgerID[:], t.Name())
-	ledgerID[len(ledgerID)-1] = byte(len(t.Name()))
+	copy(ledgerID[len(ledgerID)-len(testRunSalt):], testRunSalt[:])
 	return ledgerID
 }
 
