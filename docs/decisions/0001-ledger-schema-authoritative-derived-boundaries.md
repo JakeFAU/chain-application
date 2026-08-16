@@ -44,11 +44,27 @@ ordering authority and is never replay input.
 
 PostgreSQL enforces only invariants that hold for every record regardless of
 event kind: digest uniqueness, sequence uniqueness within a ledger, the chain
-link as a foreign key, fixed digest lengths, a bounded record size, and
-append-only behavior. Version-specific semantic rules stay in Go.
+link as a foreign key, fixed digest lengths, a bounded record size, unsigned
+64-bit range bounds on the numeric protocol fields, and append-only behavior.
+Version-specific semantic rules stay in Go.
+
+The predecessor foreign key proves only that the referenced digest exists.
+Same-ledger membership, sequence adjacency, and semantic validity of the link
+are Go-level admission rules. The database enforces referential existence, not
+chain validity.
 
 Derived columns representing protocol `uint64` values use `numeric(20,0)`, not
-`bigint`, so the stored derivation covers the protocol's full range.
+`bigint`, so the stored derivation covers the protocol's full range. Because
+`numeric(20,0)` also admits negatives and values above the unsigned 64-bit
+maximum, each such column carries an explicit
+`CHECK (column BETWEEN 0 AND 18446744073709551615)`. The floor is zero rather
+than one: version 1 rejects sequence zero, but that is a validation rule rather
+than a property of the wire type, and this layer holds only universal structure.
+
+Constraint violations are identified by SQLSTATE together with the violated
+constraint's name, never by SQLSTATE alone, because digest uniqueness and
+sequence uniqueness both raise `23505`. All constraints are explicitly named in
+migrations so the mapping is stable.
 
 Authoritative ledger migrations do not provide automated destructive down
 migrations. Their down block is present and raises an exception carrying this

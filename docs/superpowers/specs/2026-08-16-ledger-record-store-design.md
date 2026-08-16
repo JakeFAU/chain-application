@@ -79,7 +79,22 @@ remain in Go.
   stored before its predecessor. Genesis stores `NULL`.
 - Length checks pin `record_digest`, `ledger_id`, and `previous_record_digest`
   to 32 bytes and bound `record_bytes` by the protocol's maximum record size.
+- Range checks pin `sequence_number`, `event_kind`, and `payload_version` to
+  `BETWEEN 0 AND 18446744073709551615`.
 - Triggers reject `UPDATE`, `DELETE`, and `TRUNCATE`.
+
+The predecessor foreign key proves only that the referenced digest exists.
+Same-ledger membership, sequence adjacency, and semantic validity of the link
+remain Go-level admission rules. The database enforces referential existence;
+the kernel decides what constitutes a valid chain edge. Encoding adjacency
+relationally would smuggle protocol semantics into the persistence layer.
+
+The range checks use zero as the floor rather than one. Version 1 rejects
+sequence zero in `validateEventBodyWire`, but that is a Go validation rule
+rather than a property of the wire type, which is a plain `uint64`. A floor of
+one would therefore encode a version rule in a layer that is meant to hold only
+universal structure, so Go keeps owning that rejection and the stored bound is
+deliberately looser than version 1 admits.
 
 The rule that sequence 1 implies no previous digest is deliberately not
 enforced. That is a version 1 semantic rule rather than a universal structural
@@ -108,6 +123,13 @@ Because these columns are derived, a `bigint` column would be a lossy
 derivation, and narrowing the protocol's value range through a storage choice
 would resolve a protocol question by implementation rather than by decision
 record. The cost is a wider index and no direct `int64` mapping in Go.
+
+`numeric(20,0)` is wider than the domain it stores: it also admits negative
+values and values above `18446744073709551615`. Unsignedness and the upper bound
+are universal structural properties of these three protocol fields, so the
+schema states them explicitly rather than relying on the column type. Each of
+the three carries `CHECK (column BETWEEN 0 AND 18446744073709551615)`. Without
+those checks the schema would guarantee less than this document claims.
 
 ## Migration Rollback Policy
 
@@ -160,8 +182,20 @@ never from caller-supplied values, so the derived set cannot disagree with
 `ValidateRecordStructure`, so a corrupted row fails closed instead of returning
 a record that was never valid.
 
-Constraint violations map to typed errors by SQLSTATE: `23505` on the sequence
-constraint becomes chain-head-moved, and `23503` becomes unknown-predecessor.
+Constraint violations map to typed errors by SQLSTATE **and constraint name**,
+never by SQLSTATE alone. Both the primary key on `record_digest` and the
+`(ledger_id, sequence_number)` uniqueness constraint raise `23505`, so the code
+alone cannot distinguish them. Every constraint is therefore explicitly named in
+the migration rather than left to PostgreSQL's generated names, and the mapping
+matches on the name.
+
+A `23505` from the `(ledger_id, sequence_number)` constraint becomes
+chain-head-moved. A `23503` from the predecessor foreign key becomes
+unknown-predecessor. Other uniqueness violations, including a duplicate
+`record_digest`, remain distinct admission errors. Collapsing them would report
+a replayed identical record as a chain-head conflict, which is both wrong and
+operationally misleading, and the duplicate-digest integration test exists to
+catch exactly that mistake.
 
 pgx v5 is an approved material dependency for this slice. It handles `bytea` and
 `numeric` natively and exposes the SQLSTATE codes the error mapping requires.
