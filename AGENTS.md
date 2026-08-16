@@ -26,11 +26,13 @@ not own thin generated clients, frontend behavior, permanent GCP
 infrastructure, or infrastructure deployment logic.
 
 Cloud Run is the eventual default runtime and local PostgreSQL is the initial
-database. No Cloud Run service, Cloud SQL instance, application service
-account, deployer binding, GitHub WIF/IAM binding, system-signing KMS resource,
-or deployment pipeline currently exists. The live Artifact Registry repository
-and enabled project APIs are infrastructure-owned facts, not authorization to
-deploy or mutate infrastructure from this repository.
+database. No Cloud Run service, Cloud SQL instance, or deployment pipeline
+currently exists. The applied live foundation — the Artifact Registry
+repository, enabled project APIs, GitHub Workload Identity Federation/IAM, and
+the system signing key — is owned and documented by `chain-infra/AGENTS.md`;
+those are infrastructure-owned facts, not authorization to deploy or mutate
+infrastructure from this repository. Re-verify live facts there before relying
+on them.
 
 ## Engineering Priorities
 
@@ -85,14 +87,9 @@ smallest meaningful validation and a final diff review.
 
 ### TDD Is the Default
 
-For production behavior, the required cycle is RED-GREEN-REFACTOR:
-
-- **RED:** write one focused test for the desired behavior and run it. Confirm
-  it fails for the expected reason rather than because the test is broken.
-- **GREEN:** implement the minimum coherent production change that makes the
-  test pass. Do not add adjacent features because they seem convenient.
-- **REFACTOR:** improve names, structure, and duplication only while the tests
-  remain green.
+For production behavior, the required cycle is the root file's
+RED-GREEN-REFACTOR discipline; it is not restated here. The application-level
+additions follow.
 
 If production behavior was written before its regression test, do not merely
 backfill a test that passes against the existing implementation. Re-establish
@@ -127,106 +124,40 @@ or deployment acceptance. Evidence from one layer is not evidence for another.
 
 ## Prerequisites and Command Status
 
-The local baseline verified for this foundation is:
+The `README.md` is the single command reference. It owns prerequisites, exact
+tool versions, every Make target and its external requirements, the direct
+core commands, the database and container workflows, and the
+environment-variable table. Keep it current with the repository; this file
+defines only the policies those commands must obey.
 
-```text
-Go:              1.26.5 (darwin/arm64)
-dbmate:          2.35.0
-Docker:          29.4.0
-Staticcheck:      2026.1 (v0.7.0)
-govulncheck:      1.6.0
-```
+Command policies:
 
-Go 1.26 or newer, dbmate, and Docker are required. The repository records Go
-1.26.5 in `go.mod` and CI; upgrades are intentional compatibility changes.
-
-Pin Staticcheck in a committed `.staticcheck-version` and govulncheck in a
-committed `.govulncheck-version`. CI and repository commands must use those
-versions rather than ambient installations or `latest`. Upgrade either tool
-intentionally after reviewing its release notes and running the full repository
-checks.
-
-`make tools` installs the repository-pinned Staticcheck and govulncheck
-binaries under ignored `./bin`. `make fmt`, `make fmt-check`, `make vet`,
-`make staticcheck`, `make test`, `make test-race`, `make generate`,
-`make generate-check`, `make build`, `make check`, `make db-config`, the
-database targets, `make container-build`, and `make container-smoke` are
-operational. `make fmt` and `make generate` intentionally rewrite source;
-`make check` does not rewrite tracked source. Container and database targets
-require Docker, migration targets require dbmate and the local database, and
-container smoke also requires `curl`. Tool installation and vulnerability
-database access may require network access. Do not report any command as
-passing before it has been run and its output checked.
-
-The key version checks are:
-
-```bash
-go version
-dbmate --version
-docker --version
-```
-
-The following direct application commands are the current command contract and
-must remain documented in the README. Any intentional replacement requires an
-update to both documents:
-
-```bash
-go mod download
-go fmt ./...
-go vet ./...
-./bin/staticcheck ./...
-go test ./...
-go test -race ./...
-go build ./...
-./bin/govulncheck ./...
-go generate ./...
-```
-
-Install the pinned tools from their official Go modules; repository wrappers
-must not change these commands' meaning:
-
-```bash
-STATICCHECK_VERSION="$(tr -d '[:space:]' < .staticcheck-version)"
-GOBIN="$PWD/bin" go install \
-  honnef.co/go/tools/cmd/staticcheck@"$STATICCHECK_VERSION"
-
-GOVULNCHECK_VERSION="$(tr -d '[:space:]' < .govulncheck-version)"
-GOBIN="$PWD/bin" go install \
-  golang.org/x/vuln/cmd/govulncheck@"$GOVULNCHECK_VERSION"
-```
-
-Pin repository-executed development tools where their supported distribution
-mechanism permits it. Record and check minimum host-tool versions otherwise. A
-`Makefile` or scripts may provide discoverable wrappers, but direct commands
-remain the documented contract and wrappers must not change their meaning.
-Docker Compose and dbmate are operational local-only commands. They use the
-ignored `.env.local` file, the `postgres` Compose service, the pinned PostgreSQL
-18.4 image, `db/migrations`, and the `make db-up`, `make db-down`, `make
-db-logs`, `make migrate`, and `make migrate-status` targets. `make db-config` is
-their shared public prerequisite check. The Compose service binds only to
-loopback and preserves its named volume across `make db-down`; there is no
-routine destructive reset target. `POSTGRES_PASSWORD` and the password in
-`DATABASE_URL` must match, with URI-reserved password characters percent-
-encoded in the URL. `make migrate` is an explicit successful no-op while
-`db/migrations` has no dbmate `.sql` files; once schema work adds one, it invokes
-dbmate and preserves its result. These commands do not create a schema, Cloud
-SQL resource, or live database.
-
-OpenAPI generation uses the committed source contract and generation
-configuration; the generator is pinned in `go.mod`. `make generate-check`
-generates into a temporary file and compares only the committed generated
-binding, so unrelated working-tree edits do not fail the check and tracked
-source is not rewritten.
-
-The pinned multi-stage container builds a CGO-disabled, trim-path binary and
-copies only that binary into a digest-pinned distroless runtime running as
-`nonroot:nonroot`. `make container-smoke` binds only to
-`127.0.0.1:18080`, polls the exact health JSON with bounded retries and a named
-per-request deadline, and removes its own container on every exit path.
-Credential-free GitHub Actions runs the core check, Compose validation, and a
-container build with immutable action pins and `contents: read`; it does not
-use secrets, authenticate to GCP, push, deploy, or provision. Hosted CI and
-live Cloud Run/GCP acceptance remain separate, unverified authorization gates.
+- Go 1.26 or newer, dbmate, and Docker are required. The repository records
+  the exact Go version in `go.mod` and CI; upgrades are intentional
+  compatibility changes.
+- Pin repository-executed development tools in committed version files
+  (currently `.staticcheck-version` and `.govulncheck-version`) and install
+  them from their official modules under ignored `./bin`. CI and repository
+  commands must use those pins rather than ambient installations or `latest`.
+  Upgrade a tool intentionally, after reviewing its release notes and running
+  the full repository checks. Where a tool's distribution mechanism does not
+  support pinning, record and check a minimum host-tool version instead.
+- Direct commands are the documented contract. A `Makefile` or scripts may
+  provide discoverable wrappers, but wrappers must not change the direct
+  commands' meaning, and an intentional replacement updates the README.
+- Database and container targets are operational local-only commands. They do
+  not create a schema, Cloud SQL resource, or live database, and there is no
+  routine destructive reset target.
+- OpenAPI generation uses the committed source contract and a pinned
+  generator; the generation check compares only the committed generated
+  binding, so unrelated working-tree edits do not fail it and tracked source
+  is not rewritten.
+- CI remains credential-free with `contents: read` and immutable action pins;
+  it does not use secrets, authenticate to GCP, push, deploy, or provision.
+  Local evidence, hosted CI, and live Cloud Run/GCP acceptance are separate
+  evidence boundaries.
+- Do not report any command as passing before it has been run and its output
+  checked.
 
 ## Go Design Rules
 
@@ -644,29 +575,27 @@ for shared-state changes.
 
 ## Ledger, Replay, and Truth Boundaries
 
-Only accepted endorsements are eligible for ledger admission; proposals and
-denials stay private and off-ledger. Claims, observations, identity bindings,
-system admission, and derived confidence retain distinct types and provenance.
-A valid signature or admission event must never be presented as proof that the
-claim content is true.
+The root file's core invariants and proposal-privacy rules govern all ledger
+work and are not restated here. This section defines only their
+application-level consequences in this codebase:
 
-Replay through event `N` must be a deterministic function of ordered versioned
-events, approved protocol rules, algorithm/policy versions, and explicit
-configuration. Pure replay paths must not read wall-clock time, environment,
-network state, databases other than the supplied event stream, uncontrolled
-randomness, or unstable map iteration. Inject clocks and other nondeterminism,
-record the inputs needed for reproduction, and define stable ordering.
-
-Accepted history is append-only. Retraction, revocation, contradiction,
-deactivation, redaction, and tombstone behavior is represented by later events,
-not silent mutation. Preserve enough data to verify historical signatures and
-to explain every score-bearing result using contributing events, graph
-structure, identity mappings, snapshot, algorithm/version, parameters, and
-evaluation policy.
-
-Do not select canonical serialization, hash construction, event envelopes,
-ordering/concurrency rules, durable schemas, or compatibility behavior merely
-by choosing convenient Go or PostgreSQL defaults.
+- pure replay paths take ordered versioned events, approved protocol rules,
+  algorithm/policy versions, and explicit configuration as inputs, and must
+  not read wall-clock time, environment, network state, databases other than
+  the supplied event stream, uncontrolled randomness, or unstable map
+  iteration (root invariant 2). Inject clocks and other nondeterminism, record
+  the inputs needed for reproduction, and define stable ordering;
+- claims, observations, identity bindings, system admission, and derived
+  confidence retain distinct Go types and provenance; a valid signature or
+  admission event is never surfaced as proof that claim content is true
+  (root invariants 0 and 5);
+- retraction, revocation, contradiction, deactivation, redaction, and
+  tombstone behavior is implemented as later events, never as mutation of
+  accepted history (root invariant 1); and
+- do not select canonical serialization, hash construction, event envelopes,
+  ordering/concurrency rules, durable schemas, or compatibility behavior
+  merely by choosing convenient Go or PostgreSQL defaults — these are open
+  protocol decisions (see "Decision Records and Open Protocol Decisions").
 
 ## Observability
 
@@ -735,10 +664,11 @@ v5 is the default HTTP router, and Zap is the sole application logger.
 
 ## Git and Generated Files
 
-This is an independent initialized repository whose local default branch is
-`main`; the foundation work is isolated on its own branch. It has no GitHub
-remote. Do not create or guess one; ask for the repository URL and stable
-numeric repository ID when a remote is actually required.
+This is an independent repository whose default branch is `main`, with a
+private GitHub remote at `github.com/JakeFAU/chain-application`. The
+application foundation is merged to `main`. When a federated GCP grant
+requires the stable numeric repository ID, obtain it from the GitHub API and
+record it in `chain-infra`; do not guess it.
 
 Keep commits small and coherent, preserve unrelated user work, and do not
 rewrite history or force-push without explicit authorization. Commit source
@@ -771,7 +701,35 @@ Present a recommendation and trade-offs before implementing decisions about:
 - a proposed exception to the TDD, crypto-testing, or deterministic-replay
   rules for production behavior.
 
-The foundation bootstrap is implemented locally. Remote creation,
-infrastructure plan/apply, deployment, and live acceptance remain separate
-authorization gates. Ordinary implementation already in an approved request
-does not require an extra ceremonial gate.
+The GitHub remotes exist and the infrastructure foundation has been applied
+(see `chain-infra/AGENTS.md`). Deployment and any new live cloud operation
+remain separate authorization gates. Ordinary implementation already in an
+approved request does not require an extra ceremonial gate.
+
+## Decision Records and Open Protocol Decisions
+
+Approved decisions with durable consequences are recorded as short decision
+records under `docs/decisions/NNNN-<slug>.md`; `docs/decisions/README.md`
+defines the format. When a Stop-and-Escalate item is resolved, capture the
+decision, the alternatives considered, and the consequences there rather than
+leaving them in conversation history or implying them through an
+implementation.
+
+The following protocol decisions are open on `main` as of 2026-08-15 and must
+not be resolved by an implementation shortcut. Each requires an approved
+decision record before the behavior it governs is treated as durable:
+
+1. canonical serialization and hash construction for ledger events;
+2. the durable event envelope format and its versioning rules;
+3. event ordering, admission, and concurrency rules;
+4. user signing-key custody (user-managed, hosted, or hybrid);
+5. identity binding between OIDC identities and cryptographic signing keys;
+6. deletion, redaction, and tombstone semantics for an immutable public
+   ledger;
+7. the ledger database schema's authoritative-versus-derived boundaries; and
+8. system-signing key rotation, discovery, and historical verification.
+
+The in-flight ledger protocol kernel branch proposes resolutions to items 1–3
+(CDDL-authoritative deterministic CBOR, distinct event and record digests, and
+structural validation). Those choices become settled when the branch merges
+with corresponding decision records, not before.
