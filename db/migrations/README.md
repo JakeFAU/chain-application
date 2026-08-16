@@ -1,7 +1,11 @@
 # Database migrations
 
-No application schema exists yet. This directory is reserved for future
-dbmate migration files, which use timestamp-prefixed filenames.
+The `ledger_record` table is the first application schema. Migration files are
+timestamp-prefixed and applied with dbmate.
+
+Schema design, including any ledger, projection, or application table, requires
+its own approved task, and a decision record under `docs/decisions/` where it
+resolves a Stop-and-Escalate item.
 
 Relational migration history is not ledger replay: migrations evolve a
 disposable relational representation, while deterministic replay reconstructs
