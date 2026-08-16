@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/JakeFAU/chain-application/internal/app"
 	"github.com/JakeFAU/chain-application/internal/config"
@@ -170,9 +171,25 @@ func writeFallback(writer io.Writer, err error) {
 	if err == nil {
 		return
 	}
-	message := err.Error()
-	if len(message) > maximumFallbackErrorBytes {
-		message = message[:maximumFallbackErrorBytes]
+	_, _ = fmt.Fprintf(writer, "%s%s\n", fallbackPrefix, boundFallbackMessage(err.Error()))
+}
+
+// boundFallbackMessage caps the fallback message at the byte limit without
+// emitting the trailing fragment of a split multi-byte rune.
+func boundFallbackMessage(message string) string {
+	if len(message) <= maximumFallbackErrorBytes {
+		return message
 	}
-	_, _ = fmt.Fprintf(writer, "%s%s\n", fallbackPrefix, message)
+
+	bounded := message[:maximumFallbackErrorBytes]
+	// A byte cut can land inside one rune, so drop at most that rune's
+	// continuation bytes. Invalid bytes already present in the message are
+	// preserved rather than repaired here.
+	for range utf8.UTFMax - 1 {
+		if lastRune, size := utf8.DecodeLastRuneInString(bounded); lastRune != utf8.RuneError || size > 1 {
+			break
+		}
+		bounded = bounded[:len(bounded)-1]
+	}
+	return bounded
 }
