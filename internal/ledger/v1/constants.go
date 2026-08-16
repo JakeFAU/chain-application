@@ -35,7 +35,7 @@ const (
 	domainEventDigestV1  = "attribution-chain:event-digest:v1"
 	domainRecordDigestV1 = "attribution-chain:record-digest:v1"
 
-	eventDigestDomainSeparator   byte = 0
+	digestDomainSeparator        byte = 0
 	ledgerInitializedPayloadCBOR      = "\xa0"
 
 	maxPayloadBytes         = 65_536

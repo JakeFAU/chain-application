@@ -781,12 +781,12 @@ func conformanceEncodeRawMapPairs(t *testing.T, values map[uint64]cbor.RawMessag
 }
 
 func conformanceEventDigest(body []byte) Digest {
-	preimage := append([]byte(domainEventDigestV1+string(eventDigestDomainSeparator)), body...)
+	preimage := append([]byte(domainEventDigestV1+string(digestDomainSeparator)), body...)
 	return Digest(sha256.Sum256(preimage))
 }
 
 func conformanceRecordDigest(body []byte) Digest {
-	preimage := append([]byte(domainRecordDigestV1+string(recordDigestDomainSeparator)), body...)
+	preimage := append([]byte(domainRecordDigestV1+string(digestDomainSeparator)), body...)
 	return Digest(sha256.Sum256(preimage))
 }
 

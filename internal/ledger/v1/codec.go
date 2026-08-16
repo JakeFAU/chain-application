@@ -72,11 +72,9 @@ func decodeCanonicalMap(
 		return wrapValidationError(stage, ErrNonConformingCBOR)
 	}
 
-	var rawMap map[uint64]cbor.RawMessage
-	if err := protocolDecMode.Unmarshal(encoded, &rawMap); err != nil {
-		return wrapValidationError(stage, classifyDecodeError(err))
-	}
-	if !hasExactKeys(rawMap, expectedKeys) {
+	// The generic decode above already carries the exact key set, so the key
+	// check reuses it rather than decoding the same bytes a second time.
+	if !hasExactKeys(generic, expectedKeys) {
 		return wrapValidationError(stage, ErrSchemaViolation)
 	}
 
@@ -95,7 +93,7 @@ func decodeCanonicalMap(
 	return nil
 }
 
-func hasExactKeys(values map[uint64]cbor.RawMessage, expectedKeys []uint64) bool {
+func hasExactKeys(values map[uint64]any, expectedKeys []uint64) bool {
 	if len(values) != len(expectedKeys) {
 		return false
 	}
