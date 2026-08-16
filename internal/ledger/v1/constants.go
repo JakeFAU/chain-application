@@ -54,6 +54,11 @@ const (
 	maxProtocolMapPairs      = 16
 )
 
+// MaxRecordBytes is the maximum size in bytes of a canonical ledger record.
+// Storage layers need this bound to pin their own size constraints to the
+// protocol rather than to a copied literal.
+const MaxRecordBytes = maxLedgerRecordBytes
+
 type LedgerID [ledgerIDBytes]byte
 
 type Digest [digestBytes]byte
