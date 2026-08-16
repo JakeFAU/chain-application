@@ -78,6 +78,7 @@ type Runtime struct {
 	meterProvider  metric.MeterProvider
 	propagator     propagation.TextMapPropagator
 	shutdown       func(context.Context) error
+	projectID      string
 }
 
 // New constructs the application logging and telemetry runtime.
@@ -107,6 +108,7 @@ func New(ctx context.Context, cfg config.Config, runtimeOptions ...Option) (*Run
 		meterProvider:  meterProvider,
 		propagator:     propagator,
 		shutdown:       shutdown,
+		projectID:      cfg.Telemetry.ProjectID,
 	}, nil
 }
 
@@ -118,13 +120,14 @@ func (runtime Runtime) Logger() *zap.Logger {
 // WrapHTTP instruments an HTTP handler without recording request-controlled values.
 func (runtime Runtime) WrapHTTP(handler http.Handler) http.Handler {
 	downstream := http.HandlerFunc(func(response http.ResponseWriter, telemetryRequest *http.Request) {
-		originalRequest, ok := telemetryRequest.Context().Value(originalRequestContextKey).(*http.Request)
-		if !ok {
-			handler.ServeHTTP(response, telemetryRequest)
-			return
+		served := telemetryRequest
+		if originalRequest, ok := telemetryRequest.Context().Value(originalRequestContextKey).(*http.Request); ok {
+			served = originalRequest.WithContext(telemetryRequest.Context())
 		}
 
-		handler.ServeHTTP(response, originalRequest.WithContext(telemetryRequest.Context()))
+		// Logging runs inside the instrumented handler so the request span
+		// context is available for Cloud Logging trace correlation.
+		runtime.serveLogged(response, served, handler)
 	})
 
 	instrumented := otelhttp.NewHandler(

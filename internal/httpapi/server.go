@@ -24,12 +24,17 @@ func (*Server) GetHealthz(
 	return GetHealthz200JSONResponse{Status: healthStatus}, nil
 }
 
+// NewHandler builds the routed strict API handler and applies wrap once at the
+// outside. A nil wrap means no outer instrumentation and is not an error.
 func NewHandler(server StrictServerInterface, wrap func(http.Handler) http.Handler) http.Handler {
 	router := chi.NewRouter()
 	strictHandler := HandlerFromMux(
 		NewStrictHandlerWithOptions(server, nil, strictHTTPServerOptions()),
 		router,
 	)
+	if wrap == nil {
+		return strictHandler
+	}
 	return wrap(strictHandler)
 }
 

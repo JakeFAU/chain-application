@@ -171,3 +171,30 @@ func (server errorServer) GetHealthz(
 func identityWrapper(handler http.Handler) http.Handler {
 	return handler
 }
+
+func TestNewHandlerServesWithoutOuterWrapper(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+
+	handler := NewHandler(&Server{}, nil)
+	if handler == nil {
+		t.Fatal("NewHandler(server, nil) = nil, want the unwrapped strict handler")
+	}
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var response struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Status != healthStatus {
+		t.Fatalf("status body = %q, want %q", response.Status, healthStatus)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const ambientSamplerHelperEnvironment = "CHAIN_TEST_AMBIENT_SAMPLER_HELPER"
@@ -105,6 +106,61 @@ func TestWriteFallbackBoundsErrorOutput(t *testing.T) {
 	}
 	if !strings.HasSuffix(written, "\n") {
 		t.Fatalf("writeFallback() output = %q, want trailing newline", written)
+	}
+}
+
+func TestWriteFallbackTruncatesOnRuneBoundary(t *testing.T) {
+	var output bytes.Buffer
+	// U+20AC encodes as three bytes and the byte limit is not a multiple of
+	// three, so a byte-slice cut at the limit lands inside a rune.
+	errorText := strings.Repeat("\u20ac", maximumFallbackErrorBytes)
+
+	writeFallback(&output, errors.New(errorText))
+
+	written := output.String()
+	if !utf8.ValidString(written) {
+		t.Fatalf("writeFallback() wrote invalid UTF-8 ending in %q", written[max(0, len(written)-8):])
+	}
+	if len(written) > len(fallbackPrefix)+maximumFallbackErrorBytes+1 {
+		t.Fatalf("writeFallback() wrote %d bytes, want at most %d", len(written), len(fallbackPrefix)+maximumFallbackErrorBytes+1)
+	}
+}
+
+func TestBoundFallbackMessageBoundsWithoutSplittingRunes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		message      string
+		wantMaximum  int
+		wantValidUTF bool
+	}{
+		{name: "under limit", message: "short", wantMaximum: len("short"), wantValidUTF: true},
+		{name: "at limit", message: strings.Repeat("x", maximumFallbackErrorBytes), wantMaximum: maximumFallbackErrorBytes, wantValidUTF: true},
+		{name: "two byte runes", message: strings.Repeat("\u00e9", maximumFallbackErrorBytes), wantMaximum: maximumFallbackErrorBytes, wantValidUTF: true},
+		{name: "three byte runes", message: strings.Repeat("\u20ac", maximumFallbackErrorBytes), wantMaximum: maximumFallbackErrorBytes, wantValidUTF: true},
+		{name: "four byte runes", message: strings.Repeat("\U0001d11e", maximumFallbackErrorBytes), wantMaximum: maximumFallbackErrorBytes, wantValidUTF: true},
+		{name: "mixed width runes", message: strings.Repeat("a\u20ac\u00e9\U0001d11e", maximumFallbackErrorBytes), wantMaximum: maximumFallbackErrorBytes, wantValidUTF: true},
+		// Already-invalid input must terminate and stay bounded; it is not repaired.
+		{name: "already invalid bytes", message: strings.Repeat("\xff", maximumFallbackErrorBytes+10), wantMaximum: maximumFallbackErrorBytes, wantValidUTF: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			bounded := boundFallbackMessage(test.message)
+			if len(bounded) > test.wantMaximum {
+				t.Fatalf("boundFallbackMessage() length = %d, want at most %d", len(bounded), test.wantMaximum)
+			}
+			if test.wantValidUTF && !utf8.ValidString(bounded) {
+				t.Fatalf("boundFallbackMessage() is not valid UTF-8, ending in %q", bounded[max(0, len(bounded)-8):])
+			}
+			if len(test.message) > maximumFallbackErrorBytes &&
+				len(bounded) < maximumFallbackErrorBytes-(utf8.UTFMax-1) {
+				t.Fatalf("boundFallbackMessage() stripped too much: length = %d", len(bounded))
+			}
+		})
 	}
 }
 
