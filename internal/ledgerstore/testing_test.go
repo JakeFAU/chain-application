@@ -57,11 +57,26 @@ func newTestLedgerID(t *testing.T) ledgerv1.LedgerID {
 func newTestGenesisRecord(t *testing.T, ledgerID ledgerv1.LedgerID) ledgerv1.StructuralRecord {
 	t.Helper()
 
+	return newTestGenesisRecordWithSigner(t, ledgerID, "test-signer-key-reference")
+}
+
+// newTestGenesisRecordWithSigner builds a genesis record for ledgerID whose
+// signer key reference is distinguished by signerSuffix. Since the signer key
+// reference feeds the record body, distinct suffixes produce distinct record
+// digests for the same ledger and sequence, letting a caller isolate the
+// sequence constraint from the digest primary key.
+func newTestGenesisRecordWithSigner(
+	t *testing.T,
+	ledgerID ledgerv1.LedgerID,
+	signerSuffix string,
+) ledgerv1.StructuralRecord {
+	t.Helper()
+
 	event, err := ledgerv1.NewGenesisEvent(ledgerID, 1_755_000_000_000)
 	if err != nil {
 		t.Fatalf("NewGenesisEvent: %v", err)
 	}
-	record, err := ledgerv1.NewRecord(event, "test-signer-key-reference", make([]byte, 70))
+	record, err := ledgerv1.NewRecord(event, "test-signer-key-reference-"+signerSuffix, make([]byte, 70))
 	if err != nil {
 		t.Fatalf("NewRecord: %v", err)
 	}

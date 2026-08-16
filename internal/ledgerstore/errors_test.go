@@ -3,10 +3,10 @@ package ledgerstore
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	ledgerv1 "github.com/JakeFAU/chain-application/internal/ledger/v1"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestAppendRejectsDuplicateRecord(t *testing.T) {
@@ -85,7 +85,17 @@ func TestSchemaRejectsOversizedRecordBytes(t *testing.T) {
 	if err == nil {
 		t.Fatal("oversized insert succeeded, want size-bound rejection")
 	}
-	if !strings.Contains(err.Error(), "ledger_record_bytes_bound") {
-		t.Fatalf("error = %v, want ledger_record_bytes_bound violation", err)
+	// Human-readable error strings are not a machine contract; assert on the
+	// constraint name and SQLSTATE, the same way errors.go itself classifies
+	// admission failures.
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("error = %v, want a *pgconn.PgError", err)
+	}
+	if pgErr.ConstraintName != "ledger_record_bytes_bound" {
+		t.Fatalf("ConstraintName = %q, want %q", pgErr.ConstraintName, "ledger_record_bytes_bound")
+	}
+	if pgErr.Code != "23514" {
+		t.Fatalf("Code = %q, want %q (check_violation)", pgErr.Code, "23514")
 	}
 }

@@ -9,9 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrRecordNotFound means no record with the requested digest is stored.
-var ErrRecordNotFound = errors.New("ledger store record not found")
-
 const selectHeadStatement = `
 SELECT record_bytes
 FROM ledger_record
@@ -45,7 +42,13 @@ func (store *Store) Head(
 	if err != nil {
 		return ledgerv1.ChainState{}, fmt.Errorf("validate stored head record: %w", err)
 	}
-	return ledgerv1.ChainStateFromRecord(record), nil
+	state := ledgerv1.ChainStateFromRecord(record)
+	if stateLedgerID, ok := state.LedgerID(); !ok || stateLedgerID != ledgerID {
+		return ledgerv1.ChainState{}, fmt.Errorf(
+			"stored head record for ledger %x does not re-derive to that ledger_id column", ledgerID,
+		)
+	}
+	return state, nil
 }
 
 // Record returns one stored record by digest. Stored bytes are re-validated so
@@ -67,6 +70,11 @@ func (store *Store) Record(
 	record, err := ledgerv1.ValidateRecordStructure(recordBytes)
 	if err != nil {
 		return ledgerv1.StructuralRecord{}, fmt.Errorf("validate stored record: %w", err)
+	}
+	if record.RecordDigest() != digest {
+		return ledgerv1.StructuralRecord{}, fmt.Errorf(
+			"stored record %x does not re-derive to its record_digest column", digest,
+		)
 	}
 	return record, nil
 }

@@ -3,6 +3,7 @@ package ledgerstore
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -10,8 +11,13 @@ import (
 	ledgerv1 "github.com/JakeFAU/chain-application/internal/ledger/v1"
 )
 
-// The unique sequence constraint is the sole arbiter of concurrent appends.
-// Exactly one writer wins; the loser must rebuild and re-sign.
+// The unique sequence constraint, which the schema decision record calls the
+// sole arbiter of concurrent appends, is what this test proves: writers race
+// for the same (ledger_id, sequence_number) with genesis records that carry
+// distinct signer key references, so each writer's record digest is unique
+// and the digest primary key cannot be what arbitrates the race. Exactly one
+// writer wins, and every loser must be rejected specifically with
+// ErrChainHeadMoved; the loser must rebuild and re-sign.
 func TestConcurrentAppendsYieldOneWinner(t *testing.T) {
 	store := openTestStore(t)
 	ledgerID := newTestLedgerID(t)
@@ -20,11 +26,21 @@ func TestConcurrentAppendsYieldOneWinner(t *testing.T) {
 	results := make(chan error, writers)
 
 	// Records are built up front, on the test goroutine, because
-	// newTestGenesisRecord calls t.Fatalf on failure and calling t.Fatalf
-	// from a non-test goroutine is invalid Go.
+	// newTestGenesisRecordWithSigner calls t.Fatalf on failure and calling
+	// t.Fatalf from a non-test goroutine is invalid Go.
 	records := make([]ledgerv1.StructuralRecord, writers)
 	for index := range records {
-		records[index] = newTestGenesisRecord(t, ledgerID)
+		records[index] = newTestGenesisRecordWithSigner(t, ledgerID, strconv.Itoa(index))
+	}
+	for index := range records {
+		for other := index + 1; other < len(records); other++ {
+			if records[index].RecordDigest() == records[other].RecordDigest() {
+				t.Fatalf(
+					"writer %d and writer %d built identical record digests; "+
+						"the test cannot isolate the sequence constraint", index, other,
+				)
+			}
+		}
 	}
 
 	var start sync.WaitGroup
@@ -42,10 +58,10 @@ func TestConcurrentAppendsYieldOneWinner(t *testing.T) {
 		switch err := <-results; {
 		case err == nil:
 			succeeded++
-		case errors.Is(err, ErrDuplicateRecord), errors.Is(err, ErrChainHeadMoved):
+		case errors.Is(err, ErrChainHeadMoved):
 			rejected++
 		default:
-			t.Fatalf("unexpected Append error: %v", err)
+			t.Fatalf("unexpected Append error: %v, want nil or ErrChainHeadMoved", err)
 		}
 	}
 	if succeeded != 1 || rejected != writers-1 {

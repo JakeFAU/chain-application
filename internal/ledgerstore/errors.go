@@ -21,6 +21,13 @@ var (
 	ErrUnknownPredecessor = errors.New("ledger store unknown predecessor")
 )
 
+// Typed lookup failure. Unlike the admission sentinels above, this does not
+// come from a PostgreSQL constraint violation; it means a read found no
+// matching row at all.
+//
+// ErrRecordNotFound means no record with the requested digest is stored.
+var ErrRecordNotFound = errors.New("ledger store record not found")
+
 const (
 	uniqueViolationCode     = "23505"
 	foreignKeyViolationCode = "23503"

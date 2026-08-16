@@ -14,6 +14,11 @@ concurrency:
 jobs:
   go:
     runs-on: ubuntu-latest
+    env:
+      # Shared by the migration step (as DATABASE_URL) and the integration
+      # test step (as CHAIN_TEST_DATABASE_URL) below, so the connection string
+      # has exactly one definition instead of two copies that could drift.
+      POSTGRES_TEST_URL: postgres://attribution_chain:ci-local-password@127.0.0.1:5432/attribution_chain?sslmode=disable
     services:
       postgres:
         image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
@@ -42,12 +47,12 @@ jobs:
         run: make check
       - name: Apply migrations
         env:
-          DATABASE_URL: postgres://attribution_chain:ci-local-password@127.0.0.1:5432/attribution_chain?sslmode=disable
+          DATABASE_URL: ${{ env.POSTGRES_TEST_URL }}
         run: ./bin/dbmate --migrations-dir db/migrations up
       - name: Run database integration tests
         env:
-          CHAIN_TEST_DATABASE_URL: postgres://attribution_chain:ci-local-password@127.0.0.1:5432/attribution_chain?sslmode=disable
-        run: go test ./internal/ledgerstore/ -count=1
+          CHAIN_TEST_DATABASE_URL: ${{ env.POSTGRES_TEST_URL }}
+        run: go test ./... -count=1 -race
       - name: Validate local PostgreSQL configuration
         run: docker compose --env-file .env.example config --quiet
       - name: Build container
