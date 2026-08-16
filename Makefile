@@ -5,12 +5,13 @@ BIN_DIR := $(CURDIR)/bin
 APP := $(BIN_DIR)/chain-api
 STATICCHECK_VERSION := $(shell tr -d '[:space:]' < .staticcheck-version)
 GOVULNCHECK_VERSION := $(shell tr -d '[:space:]' < .govulncheck-version)
+DBMATE_VERSION := $(shell tr -d '[:space:]' < .dbmate-version)
 GENERATED_OPENAPI := internal/httpapi/openapi.gen.go
 OPENAPI_CONFIG := internal/httpapi/oapi-codegen.yaml
 OPENAPI_SPEC := api/openapi.yaml
 ENV_FILE ?= .env.local
 MIGRATIONS_DIR ?= db/migrations
-DBMATE := dbmate --env-file $(ENV_FILE) --migrations-dir $(MIGRATIONS_DIR)
+DBMATE := $(BIN_DIR)/dbmate --env-file $(ENV_FILE) --migrations-dir $(MIGRATIONS_DIR)
 COMPOSE := docker compose --env-file $(ENV_FILE)
 IMAGE ?= chain-application:local
 SMOKE_CONTAINER_PREFIX := chain-application-smoke
@@ -30,7 +31,7 @@ FUZZ_TIME ?= 10s
 
 setup: tools generate
 
-tools: $(BIN_DIR)/staticcheck $(BIN_DIR)/govulncheck
+tools: $(BIN_DIR)/staticcheck $(BIN_DIR)/govulncheck $(BIN_DIR)/dbmate
 
 $(BIN_DIR):
 	mkdir -p $@
@@ -42,6 +43,10 @@ $(BIN_DIR)/staticcheck: .staticcheck-version | $(BIN_DIR)
 $(BIN_DIR)/govulncheck: .govulncheck-version | $(BIN_DIR)
 	GOBIN=$(BIN_DIR) $(GO) install \
 		golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+$(BIN_DIR)/dbmate: .dbmate-version | $(BIN_DIR)
+	GOBIN=$(BIN_DIR) $(GO) install \
+		github.com/amacneil/dbmate/v2@$(DBMATE_VERSION)
 
 fmt:
 	$(GO) fmt ./...
@@ -115,7 +120,7 @@ db-down: db-config
 db-logs: db-config
 	$(COMPOSE) logs postgres
 
-migrate: db-config
+migrate: db-config $(BIN_DIR)/dbmate
 	@if [ ! -d "$(MIGRATIONS_DIR)" ]; then \
 		echo "migration directory does not exist: $(MIGRATIONS_DIR)" >&2; \
 		exit 1; \
@@ -125,7 +130,7 @@ migrate: db-config
 		$(DBMATE) up; \
 	fi
 
-migrate-status: db-config
+migrate-status: db-config $(BIN_DIR)/dbmate
 	$(DBMATE) status
 
 container-build:

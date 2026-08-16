@@ -14,6 +14,20 @@ concurrency:
 jobs:
   go:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+        env:
+          POSTGRES_DB: attribution_chain
+          POSTGRES_USER: attribution_chain
+          POSTGRES_PASSWORD: ci-local-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U attribution_chain -d attribution_chain"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,6 +40,14 @@ jobs:
         run: make tools
       - name: Run repository checks
         run: make check
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgres://attribution_chain:ci-local-password@127.0.0.1:5432/attribution_chain?sslmode=disable
+        run: ./bin/dbmate --migrations-dir db/migrations up
+      - name: Run database integration tests
+        env:
+          CHAIN_TEST_DATABASE_URL: postgres://attribution_chain:ci-local-password@127.0.0.1:5432/attribution_chain?sslmode=disable
+        run: go test ./internal/ledgerstore/ -count=1
       - name: Validate local PostgreSQL configuration
         run: docker compose --env-file .env.example config --quiet
       - name: Build container

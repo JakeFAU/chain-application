@@ -196,6 +196,16 @@ Compose syntax can be validated without starting PostgreSQL:
 docker compose --env-file .env.example config --quiet
 ```
 
+Database integration tests are skipped unless `CHAIN_TEST_DATABASE_URL` is set,
+so the default `make test` run needs no database. To run them against the local
+container:
+
+```bash
+make db-up && make migrate
+CHAIN_TEST_DATABASE_URL="$(grep '^DATABASE_URL=' .env.local | cut -d= -f2-)" \
+    go test ./internal/ledgerstore/ -count=1
+```
+
 ## Container
 
 Build the default local image or override its tag with `IMAGE`:
