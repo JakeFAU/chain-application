@@ -164,6 +164,8 @@ func (record StructuralRecord) SignatureBytes() []byte {
 	return bytes.Clone(record.signatureBytes)
 }
 
+// SignatureStatus reports the record's cryptographic verification status.
+// Version 1 does not verify signatures, so this always returns SignatureStatusUnverified.
 func (record StructuralRecord) SignatureStatus() SignatureStatus {
 	return SignatureStatusUnverified
 }
