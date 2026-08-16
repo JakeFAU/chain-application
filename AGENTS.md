@@ -140,7 +140,7 @@ or deployment acceptance. Evidence from one layer is not evidence for another.
 The local baseline verified for this foundation is:
 
 ```text
-Go:              1.26.5 (darwin/arm64)
+Go:              1.26.6 (darwin/arm64)
 dbmate:          2.35.0
 Docker:          29.4.0
 Staticcheck:      2026.1 (v0.7.0)
@@ -148,7 +148,7 @@ govulncheck:      1.6.0
 ```
 
 Go 1.26 or newer, dbmate, and Docker are required. The repository records Go
-1.26.5 in `go.mod` and CI; upgrades are intentional compatibility changes.
+1.26.6 in `go.mod` and CI; upgrades are intentional compatibility changes.
 
 Pin Staticcheck in a committed `.staticcheck-version` and govulncheck in a
 committed `.govulncheck-version`. CI and repository commands must use those

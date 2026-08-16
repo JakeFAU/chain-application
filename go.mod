@@ -1,6 +1,6 @@
 module github.com/JakeFAU/chain-application
 
-go 1.26.5
+go 1.26.6
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 

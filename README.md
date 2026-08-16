@@ -43,7 +43,7 @@ deployment, and live acceptance remain outside this slice.
 The locally validated baseline is:
 
 ```text
-Go:              1.26.5 (darwin/arm64)
+Go:              1.26.6 (darwin/arm64)
 dbmate:          2.35.0
 Docker:          29.4.0
 Staticcheck:      2026.1 (v0.7.0)
@@ -206,7 +206,7 @@ IMAGE=example/chain-application:test make container-build
 make container-smoke
 ```
 
-The multi-stage build pins the Go 1.26.5 builder and distroless Debian 12
+The multi-stage build pins the Go 1.26.6 builder and distroless Debian 12
 runtime by digest. It builds with `CGO_ENABLED=0`, trim paths, stripped symbols,
 and the current short Git revision as the service version. The final image runs
 as `nonroot:nonroot`, exposes port 8080, and receives only `chain-api` from the
