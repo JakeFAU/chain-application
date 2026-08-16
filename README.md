@@ -144,6 +144,14 @@ policy explicitly. When telemetry is enabled, startup rejects the presence of
 `OTEL_TRACES_SAMPLER` or `OTEL_TRACES_SAMPLER_ARG` before the OpenTelemetry SDK
 is constructed; use `CHAIN_OTEL_TRACE_SAMPLE_RATIO` instead.
 
+Each served request emits one bounded `httpRequest` log entry carrying only
+`requestMethod`, `status`, and `latency`. Unregistered methods are recorded as
+`OTHER`, and request URLs, query strings, headers, bodies, remote addresses,
+and user agents are never logged. When `CHAIN_GCP_PROJECT_ID` is set and the
+request carries a valid span context, the entry also carries
+`logging.googleapis.com/trace`, `spanId`, and `trace_sampled` so Cloud Logging
+links the entry to its trace.
+
 ## Local PostgreSQL and migrations
 
 The database workflow is local-only. Copy the committed template to an ignored

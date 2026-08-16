@@ -5,12 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/JakeFAU/chain-application/internal/config"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap/zapcore"
+)
+
+const (
+	sampledCloudTraceID      = "0123456789abcdef0123456789abcdef"
+	sampledCloudTraceContext = sampledCloudTraceID + "/81985529216486895;o=1"
 )
 
 func TestNewLoggerEmitsCloudLoggingJSON(t *testing.T) {
@@ -149,6 +159,176 @@ func TestTraceFieldsRejectsInvalidCorrelation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWrapHTTPLogsBoundedRequestWithTraceCorrelation(t *testing.T) {
+	t.Parallel()
+
+	var sink bytes.Buffer
+	cfg := loadTestConfig(t, map[string]string{"CHAIN_GCP_PROJECT_ID": "attribution-chain-505000"})
+	runtime, err := New(t.Context(), cfg, WithLogSink(zapcore.AddSync(&sink)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	runtime.tracerProvider = newRecordingTracerProvider(t)
+
+	handler := runtime.WrapHTTP(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	request.Header.Set(cloudTraceContextHeader, sampledCloudTraceContext)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	entry := decodeLogEntry(t, &sink)
+	if entry["severity"] != "INFO" {
+		t.Fatalf("severity = %v, want INFO", entry["severity"])
+	}
+	httpRequest, ok := entry["httpRequest"].(map[string]any)
+	if !ok {
+		t.Fatalf("httpRequest = %T, want a structured object", entry["httpRequest"])
+	}
+	if httpRequest["requestMethod"] != http.MethodGet {
+		t.Fatalf("requestMethod = %v, want %s", httpRequest["requestMethod"], http.MethodGet)
+	}
+	if httpRequest["status"] != float64(http.StatusNoContent) {
+		t.Fatalf("status = %v, want %d", httpRequest["status"], http.StatusNoContent)
+	}
+
+	wantTrace := "projects/attribution-chain-505000/traces/" + sampledCloudTraceID
+	if entry["logging.googleapis.com/trace"] != wantTrace {
+		t.Fatalf("trace = %v, want %s", entry["logging.googleapis.com/trace"], wantTrace)
+	}
+	if entry["logging.googleapis.com/trace_sampled"] != true {
+		t.Fatalf("trace sampled = %v, want true", entry["logging.googleapis.com/trace_sampled"])
+	}
+}
+
+func TestWrapHTTPRequestLogBoundsHTTPMethod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		want   string
+	}{
+		{name: "registered method", method: http.MethodPost, want: http.MethodPost},
+		{name: "unregistered method", method: "PROPFIND", want: unknownHTTPMethod},
+		{name: "lowercase method", method: "get", want: unknownHTTPMethod},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sink bytes.Buffer
+			runtime, err := New(t.Context(), loadTestConfig(t, nil), WithLogSink(zapcore.AddSync(&sink)))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			handler := runtime.WrapHTTP(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.WriteHeader(http.StatusNoContent)
+			}))
+			request := httptest.NewRequest(test.method, "/healthz", http.NoBody)
+			handler.ServeHTTP(httptest.NewRecorder(), request)
+
+			entry := decodeLogEntry(t, &sink)
+			httpRequest, ok := entry[cloudLoggingHTTPRequestKey].(map[string]any)
+			if !ok {
+				t.Fatalf("httpRequest = %T, want a structured object", entry[cloudLoggingHTTPRequestKey])
+			}
+			if httpRequest["requestMethod"] != test.want {
+				t.Fatalf("requestMethod = %v, want %s", httpRequest["requestMethod"], test.want)
+			}
+		})
+	}
+}
+
+func TestWrapHTTPRequestLogExcludesSensitiveRequestValues(t *testing.T) {
+	t.Parallel()
+
+	const (
+		secretQueryValue = "super-secret-token"
+		secretCredential = "Bearer super-secret-credential"
+		secretUserAgent  = "chain-test-agent/1.0"
+		secretRemoteHost = "203.0.113.42"
+	)
+
+	var sink bytes.Buffer
+	runtime, err := New(t.Context(), loadTestConfig(t, nil), WithLogSink(zapcore.AddSync(&sink)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	handler := runtime.WrapHTTP(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/healthz?access_token="+secretQueryValue, http.NoBody)
+	request.Header.Set("Authorization", secretCredential)
+	request.Header.Set("User-Agent", secretUserAgent)
+	request.RemoteAddr = secretRemoteHost + ":54321"
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	logged := sink.String()
+	if !strings.Contains(logged, requestCompletedMessage) {
+		t.Fatalf("request log missing %q: %s", requestCompletedMessage, logged)
+	}
+	for _, forbidden := range []string{
+		secretQueryValue,
+		secretCredential,
+		secretUserAgent,
+		secretRemoteHost,
+		"access_token",
+		"/healthz",
+	} {
+		if strings.Contains(logged, forbidden) {
+			t.Fatalf("request log leaked %q: %s", forbidden, logged)
+		}
+	}
+}
+
+func TestWrapHTTPRequestLogPreservesResponseControllerFlush(t *testing.T) {
+	t.Parallel()
+
+	var sink bytes.Buffer
+	runtime, err := New(t.Context(), loadTestConfig(t, nil), WithLogSink(zapcore.AddSync(&sink)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var flushErr error
+	handler := runtime.WrapHTTP(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusAccepted)
+		flushErr = http.NewResponseController(response).Flush()
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody))
+
+	if flushErr != nil {
+		t.Fatalf("ResponseController.Flush() = %v, want nil", flushErr)
+	}
+
+	entry := decodeLogEntry(t, &sink)
+	httpRequest, ok := entry[cloudLoggingHTTPRequestKey].(map[string]any)
+	if !ok {
+		t.Fatalf("httpRequest = %T, want a structured object", entry[cloudLoggingHTTPRequestKey])
+	}
+	if httpRequest["status"] != float64(http.StatusAccepted) {
+		t.Fatalf("status = %v, want %d", httpRequest["status"], http.StatusAccepted)
+	}
+}
+
+func newRecordingTracerProvider(t *testing.T) *sdktrace.TracerProvider {
+	t.Helper()
+
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(tracetest.NewSpanRecorder()),
+	)
+	t.Cleanup(func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("shutdown test tracer provider: %v", err)
+		}
+	})
+	return tracerProvider
 }
 
 func decodeLogEntry(t *testing.T, sink *bytes.Buffer) map[string]any {

@@ -3,7 +3,10 @@ package observability
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/JakeFAU/chain-application/internal/config"
 	"go.uber.org/zap"
@@ -13,7 +16,60 @@ import (
 const (
 	unsupportedLogLevelReason   = "unsupported log level"
 	httpServerDiagnosticMessage = "HTTP server diagnostic"
+	requestCompletedMessage     = "HTTP request completed"
+	cloudLoggingHTTPRequestKey  = "httpRequest"
+	latencySecondsPrecision     = 9
 )
+
+// statusRecorder captures the response status for bounded request logging
+// without retaining any response bytes.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (recorder *statusRecorder) WriteHeader(status int) {
+	recorder.status = status
+	recorder.ResponseWriter.WriteHeader(status)
+}
+
+// Unwrap exposes the wrapped writer so http.ResponseController keeps reaching
+// optional interfaces such as Flusher through this recorder.
+func (recorder *statusRecorder) Unwrap() http.ResponseWriter {
+	return recorder.ResponseWriter
+}
+
+// serveLogged serves one request and emits a single bounded log entry that
+// carries Cloud Logging trace correlation when a valid span context exists.
+// Only low-cardinality, non-sensitive fields are recorded: no URL, body,
+// headers, remote address, or user agent.
+func (runtime Runtime) serveLogged(
+	response http.ResponseWriter,
+	request *http.Request,
+	handler http.Handler,
+) {
+	recorder := &statusRecorder{ResponseWriter: response, status: http.StatusOK}
+	started := time.Now()
+	handler.ServeHTTP(recorder, request)
+	elapsed := time.Since(started)
+
+	fields := []zap.Field{
+		zap.Dict(
+			cloudLoggingHTTPRequestKey,
+			zap.String("requestMethod", boundedHTTPMethod(request.Method)),
+			zap.Int("status", recorder.status),
+			zap.String("latency", formatLatencySeconds(elapsed)),
+		),
+	}
+	runtime.logger.Info(
+		requestCompletedMessage,
+		append(fields, TraceFields(request.Context(), runtime.projectID)...)...,
+	)
+}
+
+func formatLatencySeconds(elapsed time.Duration) string {
+	return strconv.FormatFloat(elapsed.Seconds(), 'f', latencySecondsPrecision, 64) + "s"
+}
 
 type httpServerLogWriter struct {
 	logger *zap.Logger
