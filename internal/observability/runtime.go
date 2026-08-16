@@ -119,10 +119,10 @@ func (runtime Runtime) Logger() *zap.Logger {
 
 // WrapHTTP instruments an HTTP handler without recording request-controlled values.
 func (runtime Runtime) WrapHTTP(handler http.Handler) http.Handler {
-	downstream := http.HandlerFunc(func(response http.ResponseWriter, telemetryRequest *http.Request) {
-		served := telemetryRequest
-		if originalRequest, ok := telemetryRequest.Context().Value(originalRequestContextKey).(*http.Request); ok {
-			served = originalRequest.WithContext(telemetryRequest.Context())
+	downstream := http.HandlerFunc(func(response http.ResponseWriter, sanitizedRequest *http.Request) {
+		served := sanitizedRequest
+		if originalRequest, ok := sanitizedRequest.Context().Value(originalRequestContextKey).(*http.Request); ok {
+			served = originalRequest.WithContext(sanitizedRequest.Context())
 		}
 
 		// Logging runs inside the instrumented handler so the request span
@@ -143,7 +143,7 @@ func (runtime Runtime) WrapHTTP(handler http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		ctx := context.WithValue(request.Context(), originalRequestContextKey, request)
-		instrumented.ServeHTTP(response, telemetryRequest(request, ctx, runtime.propagator.Fields()))
+		instrumented.ServeHTTP(response, telemetryRequest(ctx, request, runtime.propagator.Fields()))
 	})
 }
 
@@ -302,8 +302,8 @@ func isLoopbackHost(host string) bool {
 }
 
 func telemetryRequest(
-	request *http.Request,
 	ctx context.Context,
+	request *http.Request,
 	propagationFields []string,
 ) *http.Request {
 	telemetryRequest := request.Clone(ctx)
@@ -311,6 +311,11 @@ func telemetryRequest(
 	telemetryRequest.URL = &url.URL{}
 	telemetryRequest.Host = ""
 	telemetryRequest.RemoteAddr = ""
+	// Clone copies these through verbatim, so they must be cleared explicitly:
+	// RequestURI still holds the raw path and query, and trailers are arbitrary
+	// client-supplied headers.
+	telemetryRequest.RequestURI = ""
+	telemetryRequest.Trailer = nil
 	telemetryRequest.Header = make(http.Header, len(propagationFields))
 	for _, field := range propagationFields {
 		for _, value := range request.Header.Values(field) {
