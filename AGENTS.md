@@ -24,10 +24,15 @@ values must re-encode exactly to the accepted bytes. Signature bytes are
 structurally unverified; this does not establish DER validity, low-S policy, or
 cryptographic signature authenticity.
 
-PostgreSQL ledger schema, admission and persistence, KMS signing, cryptographic
-signature verification, non-genesis domain events, application API behavior,
-deployment, and live acceptance remain absent. Local database and container
-tooling do not establish a ledger database, hosted CI, cloud, or live acceptance.
+The PostgreSQL ledger schema and record persistence exist: `ledger_record` is
+an append-only table whose sole authoritative column is `record_bytes`, and
+`internal/ledgerstore` reads and writes it. Admission, KMS signing,
+cryptographic signature verification, non-genesis domain events, application API
+behavior, deployment, and live acceptance remain absent. Nothing calls
+`ValidateChainConsistency` in production, so no code yet decides what may be
+admitted; `Store.Append` persists a record whose admissibility the caller has
+already established. Local database and container tooling do not establish
+hosted CI, cloud, or live acceptance.
 
 This repository owns the Go 1.26+ application: authoritative domain policy, the
 HTTP API implementation, ledger admission and replay behavior, and
@@ -146,7 +151,8 @@ Command policies:
   the exact Go version in `go.mod` and CI; upgrades are intentional
   compatibility changes.
 - Pin repository-executed development tools in committed version files
-  (currently `.staticcheck-version` and `.govulncheck-version`) and install
+  (currently `.staticcheck-version`, `.govulncheck-version`, and
+  `.dbmate-version`) and install
   them from their official modules under ignored `./bin`. CI and repository
   commands must use those pins rather than ambient installations or `latest`.
   Upgrade a tool intentionally, after reviewing its release notes and running
@@ -502,12 +508,17 @@ Cloud SQL dependency or permanent cloud resource merely to make local
 development look production-like. Keep `DATABASE_URL` in ignored local
 configuration.
 
-When schema work begins, put ordered dbmate migrations under `db/migrations`.
-Migrations must build a clean database from the complete migration history and
-must not depend on manual state. Never edit an already shared migration to
-rewrite history; add a forward migration. Destructive migrations, irreversible
-data transformations, and ledger-affecting schema choices require review and
-explicit approval.
+Ordered dbmate migrations live under `db/migrations`. Migrations must build a
+clean database from the complete migration history and must not depend on manual
+state. Never edit an already shared migration to rewrite history; add a forward
+migration. Destructive migrations, irreversible data transformations, and
+ledger-affecting schema choices require review and explicit approval.
+
+Authoritative ledger migrations provide no automated destructive down migration.
+Their down block is present and raises an exception carrying that policy, so a
+rollback that would remove ledger history fails loudly and remains an explicit
+operator decision. Rebuildable projections retain conventional reversible
+migrations. See `docs/decisions/0002-ledger-column-taxonomy-and-numeric-domain.md`.
 
 Transaction boundaries belong to application use cases, not individual helper
 methods. A repository/adapter must not secretly start independent transactions
@@ -556,6 +567,13 @@ routes stay aligned.
 Repository behavior and transaction semantics must be tested against real
 PostgreSQL, not a SQLite substitute or SQL mock. Keep these tests isolated from
 unit tests and make setup/cleanup deterministic.
+
+These tests are gated on `CHAIN_TEST_DATABASE_URL` and skip when it is unset, so
+the default `make test` run stays offline. CI sets it against a service
+container pinned to the same image digest as `compose.yaml`. Because
+`ledger_record` is append-only and cannot be truncated, fixtures must be unique
+per run rather than per test name; deriving identifiers from a per-process
+random salt keeps reruns against a persistent local database clean.
 
 Migrations must be tested from an empty database. Where relevant, also test
 upgrade paths from supported prior schema states.
