@@ -239,3 +239,33 @@ func newRecordFromWire(t *testing.T, wire eventBodyWire) StructuralRecord {
 func digestBytesFrom(digest Digest) []byte {
 	return digest[:]
 }
+
+func TestChainStateFromRecordDerivesAdmittedState(t *testing.T) {
+	t.Parallel()
+
+	genesis := newGoldenGenesisRecord(t)
+	state := ChainStateFromRecord(genesis)
+
+	if !state.Initialized() {
+		t.Fatal("Initialized() = false, want true")
+	}
+	ledgerID, ok := state.LedgerID()
+	if !ok || ledgerID != genesis.Event().LedgerID() {
+		t.Fatalf("LedgerID() = %x, %v, want %x, true", ledgerID, ok, genesis.Event().LedgerID())
+	}
+	if state.LastSequence() != genesis.Event().Sequence() {
+		t.Fatalf("LastSequence() = %d, want %d", state.LastSequence(), genesis.Event().Sequence())
+	}
+	digest, ok := state.LastRecordDigest()
+	if !ok || digest != genesis.RecordDigest() {
+		t.Fatalf("LastRecordDigest() = %x, %v, want %x, true", digest, ok, genesis.RecordDigest())
+	}
+}
+
+func TestChainStateFromRecordRejectsZeroRecord(t *testing.T) {
+	t.Parallel()
+
+	if state := ChainStateFromRecord(StructuralRecord{}); state.Initialized() {
+		t.Fatal("Initialized() = true for a zero record, want false")
+	}
+}

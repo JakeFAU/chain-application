@@ -86,3 +86,19 @@ func Apply(state ReplayState, record StructuralRecord) (ReplayState, error) {
 func (state ReplayState) ChainState() ChainState {
 	return state.chain
 }
+
+// ChainStateFromRecord derives the chain state produced by admitting record.
+// A zero record yields uninitialized state, so callers cannot manufacture a
+// chain position that no validated record established.
+func ChainStateFromRecord(record StructuralRecord) ChainState {
+	if len(record.bytes) == 0 {
+		return ChainState{}
+	}
+	event := record.Event()
+	return ChainState{
+		initialized:      true,
+		ledgerID:         event.LedgerID(),
+		lastSequence:     event.Sequence(),
+		lastRecordDigest: record.RecordDigest(),
+	}
+}

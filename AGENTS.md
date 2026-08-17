@@ -743,3 +743,9 @@ The in-flight ledger protocol kernel branch proposes resolutions to items 1–3
 (CDDL-authoritative deterministic CBOR, distinct event and record digests, and
 structural validation). Those choices become settled when the branch merges
 with corresponding decision records, not before.
+
+The in-flight ledger record store branch resolves item 7 with
+`docs/decisions/0001-ledger-schema-authoritative-derived-boundaries.md`
+(`accepted`, 2026-08-16): `record_bytes` is the sole authoritative column, and
+every other stored column is derived from it and re-derivation-checked on
+read. That resolution becomes settled when the branch merges.

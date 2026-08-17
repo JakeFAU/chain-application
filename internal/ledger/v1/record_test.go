@@ -519,3 +519,12 @@ func readProtocolFixture(t testing.TB, name string) []byte {
 	}
 	return data
 }
+
+func TestMaxRecordBytesBoundsValidation(t *testing.T) {
+	t.Parallel()
+
+	oversized := make([]byte, MaxRecordBytes+1)
+	if _, err := ValidateRecordStructure(oversized); !errors.Is(err, ErrOversizedInput) {
+		t.Fatalf("ValidateRecordStructure error = %v, want ErrOversizedInput", err)
+	}
+}
