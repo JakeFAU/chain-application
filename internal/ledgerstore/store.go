@@ -7,9 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
+	"math/big"
 
 	ledgerv1 "github.com/JakeFAU/chain-application/internal/ledger/v1"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,6 +24,7 @@ INSERT INTO ledger_record (
     payload_version,
     record_bytes
 ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT ON CONSTRAINT ledger_record_digest_pk DO NOTHING
 `
 
 // Store owns all SQL for admitted ledger records.
@@ -60,7 +62,7 @@ func (store *Store) Append(ctx context.Context, record ledgerv1.StructuralRecord
 		previousDigest = previous[:]
 	}
 
-	_, err := store.pool.Exec(
+	tag, err := store.pool.Exec(
 		ctx,
 		insertRecordStatement,
 		recordDigest[:],
@@ -77,13 +79,22 @@ func (store *Store) Append(ctx context.Context, record ledgerv1.StructuralRecord
 		}
 		return fmt.Errorf("append ledger record: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		// ON CONFLICT ... DO NOTHING suppressed the digest primary key
+		// violation, so no error surfaced from PostgreSQL to classify. The
+		// exact record is already stored: duplicate, not a head conflict.
+		return ErrDuplicateRecord
+	}
 	return nil
 }
 
-// unsignedNumeric renders a uint64 for a numeric(20,0) column. The value is
-// sent as its decimal text because the protocol range exceeds int64 and pgx has
-// no native uint64 type; PostgreSQL parses the text into numeric exactly. These
-// columns are never read back, so no decode path is needed.
-func unsignedNumeric(value uint64) string {
-	return strconv.FormatUint(value, 10)
+// unsignedNumeric renders a uint64 as an exact pgtype.Numeric for a
+// numeric(20,0) column. big.Int represents the full unsigned 64-bit range
+// exactly, and pgtype.Numeric implements NumericValuer so pgx's NumericCodec
+// can encode it in either text or binary format. A plain decimal string only
+// works via a text-format fast path in pgx's Map.planEncode that bypasses
+// NumericCodec entirely; if that parameter ever resolves to binary format,
+// encoding a bare string fails.
+func unsignedNumeric(value uint64) pgtype.Numeric {
+	return pgtype.Numeric{Int: new(big.Int).SetUint64(value), Valid: true}
 }
