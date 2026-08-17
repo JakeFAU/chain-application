@@ -743,32 +743,32 @@ decision, the alternatives considered, and the consequences there rather than
 leaving them in conversation history or implying them through an
 implementation.
 
-The following protocol decisions are open on `main` as of 2026-08-15 and must
-not be resolved by an implementation shortcut. Each requires an approved
-decision record before the behavior it governs is treated as durable:
+The following protocol decisions are defined and tracked under `docs/decisions/`.
+Items 1–3 and 7 are resolved by approved decision records; items 4–6 and 8 remain
+open protocol decisions as of 2026-08-17 and must not be resolved by an
+implementation shortcut:
 
-1. canonical serialization and hash construction for ledger events;
-2. the durable event envelope format and its versioning rules;
-3. event ordering, admission, and concurrency rules;
+1. canonical serialization and hash construction for ledger events — resolved
+   by `0003-canonical-serialization-and-digest-construction.md` (`accepted`,
+   2026-08-17);
+2. the durable event envelope format and its versioning rules — resolved by
+   `0004-durable-event-and-record-envelope-versioning.md` (`accepted`,
+   2026-08-17);
+3. event ordering, admission, and concurrency rules — resolved by
+   `0005-event-ordering-chain-linkage-and-concurrency.md` (`accepted`,
+   2026-08-17);
 4. user signing-key custody (user-managed, hosted, or hybrid);
 5. identity binding between OIDC identities and cryptographic signing keys;
 6. deletion, redaction, and tombstone semantics for an immutable public
    ledger;
-7. the ledger database schema's authoritative-versus-derived boundaries; and
+7. the ledger database schema's authoritative-versus-derived boundaries —
+   resolved by `0002-ledger-column-taxonomy-and-numeric-domain.md` (`accepted`,
+   2026-08-17), which supersedes `0001-ledger-schema-authoritative-derived-boundaries.md`;
+   and
 8. system-signing key rotation, discovery, and historical verification.
 
-The ledger protocol kernel merged on 2026-08-11 implementing resolutions to
-items 1–3 (CDDL-authoritative deterministic CBOR, distinct event and record
-digests, and structural validation), but without the decision records this
-policy requires. Items 1–3 are therefore still open: the code ships, the
-decisions are not recorded, and backfilling those records is an outstanding
-obligation.
-
-Item 7 is resolved by
-`docs/decisions/0002-ledger-column-taxonomy-and-numeric-domain.md`
-(`accepted`, 2026-08-17), which supersedes
-`0001-ledger-schema-authoritative-derived-boundaries.md`. `record_bytes` is the
-sole authoritative column; derived protocol columns are reproducible from it
-and re-derivation-checked on read; `inserted_at` is operational metadata and
-neither. Derived columns carrying protocol `positive-uint64` values are bounded
-`1..18446744073709551615`, matching the CDDL rather than widening it.
+`record_bytes` is the sole authoritative column; derived protocol columns are
+reproducible from it and re-derivation-checked on read; `inserted_at` is
+operational metadata and neither. Derived columns carrying protocol
+`positive-uint64` values are bounded `1..18446744073709551615`, matching the
+CDDL rather than widening it.
