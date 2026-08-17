@@ -739,13 +739,18 @@ decision record before the behavior it governs is treated as durable:
 7. the ledger database schema's authoritative-versus-derived boundaries; and
 8. system-signing key rotation, discovery, and historical verification.
 
-The in-flight ledger protocol kernel branch proposes resolutions to items 1–3
-(CDDL-authoritative deterministic CBOR, distinct event and record digests, and
-structural validation). Those choices become settled when the branch merges
-with corresponding decision records, not before.
+The ledger protocol kernel merged on 2026-08-11 implementing resolutions to
+items 1–3 (CDDL-authoritative deterministic CBOR, distinct event and record
+digests, and structural validation), but without the decision records this
+policy requires. Items 1–3 are therefore still open: the code ships, the
+decisions are not recorded, and backfilling those records is an outstanding
+obligation.
 
-The in-flight ledger record store branch resolves item 7 with
-`docs/decisions/0001-ledger-schema-authoritative-derived-boundaries.md`
-(`accepted`, 2026-08-16): `record_bytes` is the sole authoritative column, and
-every other stored column is derived from it and re-derivation-checked on
-read. That resolution becomes settled when the branch merges.
+Item 7 is resolved by
+`docs/decisions/0002-ledger-column-taxonomy-and-numeric-domain.md`
+(`accepted`, 2026-08-17), which supersedes
+`0001-ledger-schema-authoritative-derived-boundaries.md`. `record_bytes` is the
+sole authoritative column; derived protocol columns are reproducible from it
+and re-derivation-checked on read; `inserted_at` is operational metadata and
+neither. Derived columns carrying protocol `positive-uint64` values are bounded
+`1..18446744073709551615`, matching the CDDL rather than widening it.
