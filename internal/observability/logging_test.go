@@ -317,6 +317,105 @@ func TestWrapHTTPRequestLogPreservesResponseControllerFlush(t *testing.T) {
 	}
 }
 
+func TestWrapHTTPRecoversPanicAndLogsError(t *testing.T) {
+	t.Parallel()
+
+	const panicMessage = "simulated-panic-error-98471"
+	var sink bytes.Buffer
+	cfg := loadTestConfig(t, map[string]string{"CHAIN_GCP_PROJECT_ID": "attribution-chain-505000"})
+	runtime, err := New(t.Context(), cfg, WithLogSink(zapcore.AddSync(&sink)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	runtime.tracerProvider = newRecordingTracerProvider(t)
+
+	handler := runtime.WrapHTTP(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic(panicMessage)
+	}))
+
+	request := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	request.Header.Set(cloudTraceContextHeader, sampledCloudTraceContext)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	if recorder.Body.String() != "internal server error\n" {
+		t.Fatalf("body = %q, want %q", recorder.Body.String(), "internal server error\n")
+	}
+
+	decoder := json.NewDecoder(&sink)
+	var panicLogEntry map[string]any
+	if err := decoder.Decode(&panicLogEntry); err != nil {
+		t.Fatalf("decode panic log entry: %v", err)
+	}
+	if panicLogEntry["severity"] != "ERROR" {
+		t.Fatalf("panic entry severity = %v, want ERROR", panicLogEntry["severity"])
+	}
+	if panicLogEntry["message"] != "HTTP handler panic recovered" {
+		t.Fatalf("panic entry message = %v, want 'HTTP handler panic recovered'", panicLogEntry["message"])
+	}
+	if panicLogEntry["error"] != panicMessage {
+		t.Fatalf("panic entry error = %v, want %q", panicLogEntry["error"], panicMessage)
+	}
+	if stack, ok := panicLogEntry["stack"].(string); !ok || stack == "" {
+		t.Fatalf("panic entry stack = %v, want non-empty string", panicLogEntry["stack"])
+	}
+	wantTrace := "projects/attribution-chain-505000/traces/" + sampledCloudTraceID
+	if panicLogEntry["logging.googleapis.com/trace"] != wantTrace {
+		t.Fatalf("panic entry trace = %v, want %s", panicLogEntry["logging.googleapis.com/trace"], wantTrace)
+	}
+
+	var requestLogEntry map[string]any
+	if err := decoder.Decode(&requestLogEntry); err != nil {
+		t.Fatalf("decode request log entry: %v", err)
+	}
+	if requestLogEntry["severity"] != "INFO" {
+		t.Fatalf("request entry severity = %v, want INFO", requestLogEntry["severity"])
+	}
+	httpRequest, ok := requestLogEntry[cloudLoggingHTTPRequestKey].(map[string]any)
+	if !ok {
+		t.Fatalf("httpRequest = %T, want a structured object", requestLogEntry[cloudLoggingHTTPRequestKey])
+	}
+	if httpRequest["status"] != float64(http.StatusInternalServerError) {
+		t.Fatalf("request log status = %v, want %d", httpRequest["status"], http.StatusInternalServerError)
+	}
+	if requestLogEntry["logging.googleapis.com/trace"] != wantTrace {
+		t.Fatalf("request entry trace = %v, want %s", requestLogEntry["logging.googleapis.com/trace"], wantTrace)
+	}
+}
+
+func TestWrapHTTPPanicRecoveryPassesThroughErrAbortHandler(t *testing.T) {
+	t.Parallel()
+
+	var sink bytes.Buffer
+	runtime, err := New(t.Context(), loadTestConfig(t, nil), WithLogSink(zapcore.AddSync(&sink)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	handler := runtime.WrapHTTP(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic(http.ErrAbortHandler)
+	}))
+
+	request := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	recorder := httptest.NewRecorder()
+
+	defer func() {
+		rvr := recover()
+		if rvr != http.ErrAbortHandler {
+			t.Fatalf("recover() = %v, want http.ErrAbortHandler", rvr)
+		}
+		if sink.Len() != 0 {
+			t.Fatalf("sink wrote %d bytes, want 0 on ErrAbortHandler: %s", sink.Len(), sink.String())
+		}
+	}()
+
+	handler.ServeHTTP(recorder, request)
+}
+
 func newRecordingTracerProvider(t *testing.T) *sdktrace.TracerProvider {
 	t.Helper()
 
