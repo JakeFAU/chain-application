@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func TestHealthzReturnsContractResponse(t *testing.T) {
@@ -135,6 +137,26 @@ func TestStrictErrorResponsesDoNotExposeInternalErrors(t *testing.T) {
 				t.Fatalf("body disclosed sentinel: %q", recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestChiServerOptionsErrorHandlerDoesNotExposeInternalErrors(t *testing.T) {
+	t.Parallel()
+
+	const sentinel = "private-chi-parser-error-4710bc82"
+	options := chiServerOptions(chi.NewRouter())
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	options.ErrorHandlerFunc(recorder, request, errors.New(sentinel))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+	if recorder.Body.String() != "invalid request\n" {
+		t.Fatalf("body = %q, want %q", recorder.Body.String(), "invalid request\n")
+	}
+	if strings.Contains(recorder.Body.String(), sentinel) {
+		t.Fatalf("body disclosed sentinel: %q", recorder.Body.String())
 	}
 }
 

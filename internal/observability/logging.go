@@ -17,6 +17,8 @@ const (
 	unsupportedLogLevelReason   = "unsupported log level"
 	httpServerDiagnosticMessage = "HTTP server diagnostic"
 	requestCompletedMessage     = "HTTP request completed"
+	panicRecoveredMessage       = "HTTP handler panic recovered"
+	internalServerErrorMessage  = "internal server error"
 	cloudLoggingHTTPRequestKey  = "httpRequest"
 	latencySecondsPrecision     = 9
 )
@@ -50,21 +52,40 @@ func (runtime Runtime) serveLogged(
 ) {
 	recorder := &statusRecorder{ResponseWriter: response, status: http.StatusOK}
 	started := time.Now()
-	handler.ServeHTTP(recorder, request)
-	elapsed := time.Since(started)
+	defer func() {
+		if rvr := recover(); rvr != nil {
+			if rvr == http.ErrAbortHandler {
+				panic(rvr)
+			}
+			runtime.logger.Error(
+				panicRecoveredMessage,
+				append(
+					[]zap.Field{
+						zap.Any("error", rvr),
+						zap.Stack("stack"),
+					},
+					TraceFields(request.Context(), runtime.projectID)...,
+				)...,
+			)
+			http.Error(recorder, internalServerErrorMessage, http.StatusInternalServerError)
+		}
 
-	fields := []zap.Field{
-		zap.Dict(
-			cloudLoggingHTTPRequestKey,
-			zap.String("requestMethod", boundedHTTPMethod(request.Method)),
-			zap.Int("status", recorder.status),
-			zap.String("latency", formatLatencySeconds(elapsed)),
-		),
-	}
-	runtime.logger.Info(
-		requestCompletedMessage,
-		append(fields, TraceFields(request.Context(), runtime.projectID)...)...,
-	)
+		elapsed := time.Since(started)
+		fields := []zap.Field{
+			zap.Dict(
+				cloudLoggingHTTPRequestKey,
+				zap.String("requestMethod", boundedHTTPMethod(request.Method)),
+				zap.Int("status", recorder.status),
+				zap.String("latency", formatLatencySeconds(elapsed)),
+			),
+		}
+		runtime.logger.Info(
+			requestCompletedMessage,
+			append(fields, TraceFields(request.Context(), runtime.projectID)...)...,
+		)
+	}()
+
+	handler.ServeHTTP(recorder, request)
 }
 
 func formatLatencySeconds(elapsed time.Duration) string {

@@ -28,14 +28,23 @@ func (*Server) GetHealthz(
 // outside. A nil wrap means no outer instrumentation and is not an error.
 func NewHandler(server StrictServerInterface, wrap func(http.Handler) http.Handler) http.Handler {
 	router := chi.NewRouter()
-	strictHandler := HandlerFromMux(
+	strictHandler := HandlerWithOptions(
 		NewStrictHandlerWithOptions(server, nil, strictHTTPServerOptions()),
-		router,
+		chiServerOptions(router),
 	)
 	if wrap == nil {
 		return strictHandler
 	}
 	return wrap(strictHandler)
+}
+
+func chiServerOptions(router chi.Router) ChiServerOptions {
+	return ChiServerOptions{
+		BaseRouter: router,
+		ErrorHandlerFunc: func(response http.ResponseWriter, _ *http.Request, _ error) {
+			http.Error(response, invalidRequestMessage, http.StatusBadRequest)
+		},
+	}
 }
 
 func strictHTTPServerOptions() StrictHTTPServerOptions {
