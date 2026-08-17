@@ -75,6 +75,15 @@ data model, while this document supplies constraints that CDDL alone cannot
 express, including deterministic encoding, digest preimages, cross-field
 rules, size limits, and replay behavior.
 
+CDDL and normative prose are jointly normative. A contradiction between them is
+a specification defect and must be resolved by protocol review; an
+implementation must not treat either as taking precedence over the other, and
+must not resolve the contradiction by choosing the reading its layer finds
+convenient. The structural domains the CDDL declares — notably
+`positive-uint64` for `sequence`, `event_kind`, and `payload_version` — are
+protocol structure, not implementation detail, and no downstream layer may
+widen or narrow them.
+
 The Go implementation lives under `internal/ledger/v1` with package name
 `ledgerv1`. Go types implement the protocol but do not define it. No generated
 Go code is produced from CDDL in this slice.

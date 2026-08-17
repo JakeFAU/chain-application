@@ -2,12 +2,22 @@
 
 ## Status
 
-`accepted` — 2026-08-16.
+`superseded` — 2026-08-17 — by
+`0002-ledger-column-taxonomy-and-numeric-domain.md`.
 
-Resolves open protocol decision 7 in `AGENTS.md`. Open decisions 1 through 3
-remain outstanding: the ledger protocol kernel merged without the decision
-records its own policy requires, and that obligation is unchanged by this
-record.
+This record was `accepted` on 2026-08-16. It is superseded because its numeric
+domain is wrong: it permits zero for `sequence_number`, `event_kind`, and
+`payload_version`, while the normative CDDL defines all three as
+`positive-uint64` (`1..18446744073709551615`). The reasoning below, that
+rejecting zero is a version-1 validation rule rather than a property of the
+wire type, is incorrect on a checkable fact.
+
+The body is preserved unchanged, including that error. Records are immutable
+once accepted; the correction lives in 0002, not in edits here.
+
+Open protocol decision 7 is resolved by 0002. Open decisions 1 through 3 remain
+outstanding: the ledger protocol kernel merged without the decision records its
+own policy requires, and that obligation is unchanged.
 
 ## Context
 
