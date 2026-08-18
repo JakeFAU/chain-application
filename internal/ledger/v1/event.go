@@ -26,19 +26,29 @@ type eventBodyWire struct {
 	PayloadBytes         []byte `cbor:"7,keyasint"`
 }
 
-func NewGenesisEvent(ledgerID LedgerID, admittedAtUnixMS uint64) (StructuralEvent, error) {
-	payloadBytes := []byte(ledgerInitializedPayloadCBOR)
-	if err := validateLedgerInitializedPayload(payloadBytes); err != nil {
-		return StructuralEvent{}, err
+// NewEvent constructs and structurally validates an arbitrary event body envelope.
+func NewEvent(
+	ledgerID LedgerID,
+	sequence uint64,
+	previousRecordDigest *Digest,
+	admittedAtUnixMS uint64,
+	kind EventKind,
+	payloadVersion uint64,
+	payloadBytes []byte,
+) (StructuralEvent, error) {
+	var prevBytes []byte
+	if previousRecordDigest != nil {
+		prevBytes = bytes.Clone(previousRecordDigest[:])
 	}
 	wire := eventBodyWire{
-		ProtocolVersion:  protocolVersionV1,
-		LedgerID:         bytes.Clone(ledgerID[:]),
-		Sequence:         1,
-		AdmittedAtUnixMS: admittedAtUnixMS,
-		EventKind:        uint64(EventKindLedgerInitialized),
-		PayloadVersion:   ledgerInitializedPayloadVersionV1,
-		PayloadBytes:     payloadBytes,
+		ProtocolVersion:      protocolVersionV1,
+		LedgerID:             bytes.Clone(ledgerID[:]),
+		Sequence:             sequence,
+		PreviousRecordDigest: prevBytes,
+		AdmittedAtUnixMS:     admittedAtUnixMS,
+		EventKind:            uint64(kind),
+		PayloadVersion:       payloadVersion,
+		PayloadBytes:         bytes.Clone(payloadBytes),
 	}
 
 	encoded, err := encodeCanonical(wire, maxEventBodyBytes, stageEventBody)
@@ -46,6 +56,22 @@ func NewGenesisEvent(ledgerID LedgerID, admittedAtUnixMS uint64) (StructuralEven
 		return StructuralEvent{}, err
 	}
 	return ValidateEventStructure(encoded)
+}
+
+func NewGenesisEvent(ledgerID LedgerID, admittedAtUnixMS uint64) (StructuralEvent, error) {
+	payloadBytes := []byte(ledgerInitializedPayloadCBOR)
+	if err := validateLedgerInitializedPayload(payloadBytes); err != nil {
+		return StructuralEvent{}, err
+	}
+	return NewEvent(
+		ledgerID,
+		1,
+		nil,
+		admittedAtUnixMS,
+		EventKindLedgerInitialized,
+		ledgerInitializedPayloadVersionV1,
+		payloadBytes,
+	)
 }
 
 func ValidateEventStructure(encoded []byte) (StructuralEvent, error) {
