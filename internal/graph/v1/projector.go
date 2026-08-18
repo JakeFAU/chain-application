@@ -11,9 +11,9 @@ import (
 )
 
 var (
-	ErrLedgerMismatch    = errors.New("record ledger ID does not match graph ledger ID")
-	ErrSequenceBreak     = errors.New("record sequence is not strictly continuous")
-	ErrUnsupportedEvent  = errors.New("unsupported event kind for graph projection")
+	ErrLedgerMismatch   = errors.New("record ledger ID does not match graph ledger ID")
+	ErrSequenceBreak    = errors.New("record sequence is not strictly continuous")
+	ErrUnsupportedEvent = errors.New("unsupported event kind for graph projection")
 )
 
 // Projector consumes an ordered stream of ledger records to mutate and maintain the Graph projection.

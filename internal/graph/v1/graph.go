@@ -10,10 +10,10 @@ import (
 )
 
 var (
-	ErrEdgeNotFound       = errors.New("target attestation edge not found")
-	ErrEdgeAlreadyRevoked = errors.New("attestation edge is already revoked")
+	ErrEdgeNotFound        = errors.New("target attestation edge not found")
+	ErrEdgeAlreadyRevoked  = errors.New("attestation edge is already revoked")
 	ErrUnauthorizedRevoker = errors.New("revoker public key does not match proposer or subject")
-	ErrDuplicateEdge      = errors.New("attestation edge with record digest already exists")
+	ErrDuplicateEdge       = errors.New("attestation edge with record digest already exists")
 )
 
 // Graph represents the thread-safe in-memory projection of admitted endorsements.

@@ -13,10 +13,10 @@ const (
 )
 
 var (
-	ErrEmptyTrustRoots      = errors.New("trust roots map cannot be empty")
-	ErrInvalidTrustWeight   = errors.New("trust root weight must be in (0, 1.0]")
-	ErrInvalidDecayFactor   = errors.New("decay factor must be in (0, 1.0)")
-	ErrInvalidMaxHops       = errors.New("max hops must be greater than 0")
+	ErrEmptyTrustRoots    = errors.New("trust roots map cannot be empty")
+	ErrInvalidTrustWeight = errors.New("trust root weight must be in (0, 1.0]")
+	ErrInvalidDecayFactor = errors.New("decay factor must be in (0, 1.0)")
+	ErrInvalidMaxHops     = errors.New("max hops must be greater than 0")
 )
 
 // EvaluationPolicy specifies the explicit, versioned rules used to derive confidence from the attestation graph.
