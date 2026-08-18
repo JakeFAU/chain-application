@@ -250,8 +250,12 @@ func shutdownProviders(ctx context.Context, shutdowns ...func(context.Context) e
 
 	errs := make([]error, len(shutdowns))
 	for range shutdowns {
-		result := <-results
-		errs[result.index] = result.err
+		select {
+		case result := <-results:
+			errs[result.index] = result.err
+		case <-ctx.Done():
+			return errors.Join(append(errs, ctx.Err())...)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -318,6 +322,9 @@ func telemetryRequest(
 	telemetryRequest.Trailer = nil
 	telemetryRequest.Header = make(http.Header, len(propagationFields))
 	for _, field := range propagationFields {
+		if strings.EqualFold(field, cloudTraceContextHeader) {
+			continue
+		}
 		for _, value := range request.Header.Values(field) {
 			telemetryRequest.Header.Add(field, value)
 		}

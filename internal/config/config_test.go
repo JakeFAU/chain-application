@@ -150,6 +150,41 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			},
 			wantEnv: "CHAIN_GCP_PROJECT_ID",
 		},
+		{
+			name: "project ID with uppercase",
+			values: map[string]string{
+				"CHAIN_GCP_PROJECT_ID": "Attribution-chain-505000",
+			},
+			wantEnv: "CHAIN_GCP_PROJECT_ID",
+		},
+		{
+			name: "project ID too short",
+			values: map[string]string{
+				"CHAIN_GCP_PROJECT_ID": "abc",
+			},
+			wantEnv: "CHAIN_GCP_PROJECT_ID",
+		},
+		{
+			name: "project ID trailing hyphen",
+			values: map[string]string{
+				"CHAIN_GCP_PROJECT_ID": "attribution-",
+			},
+			wantEnv: "CHAIN_GCP_PROJECT_ID",
+		},
+		{
+			name: "project ID leading digit",
+			values: map[string]string{
+				"CHAIN_GCP_PROJECT_ID": "1attribution-chain",
+			},
+			wantEnv: "CHAIN_GCP_PROJECT_ID",
+		},
+		{
+			name: "project ID invalid chars",
+			values: map[string]string{
+				"CHAIN_GCP_PROJECT_ID": "attribution_chain",
+			},
+			wantEnv: "CHAIN_GCP_PROJECT_ID",
+		},
 	}
 
 	for _, test := range tests {

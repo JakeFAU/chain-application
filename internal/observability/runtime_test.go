@@ -690,3 +690,42 @@ func assertResourceAttribute(t *testing.T, telemetryResource *resource.Resource,
 		t.Fatalf("resource attribute %q = %q, want %q", key, value.AsString(), want)
 	}
 }
+
+func TestTelemetryRequestStripsMalformedCloudTraceContext(t *testing.T) {
+	t.Parallel()
+
+	rawReq := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
+	rawReq.Header.Set("X-Cloud-Trace-Context", "malformed/trace/context")
+	rawReq.Header.Set("traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
+
+	propagationFields := []string{"X-Cloud-Trace-Context", "traceparent"}
+	sanitized := telemetryRequest(context.Background(), rawReq, propagationFields)
+
+	if got := sanitized.Header.Get("X-Cloud-Trace-Context"); got != "" {
+		t.Fatalf("X-Cloud-Trace-Context = %q, want empty", got)
+	}
+	if got := sanitized.Header.Get("traceparent"); got != "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01" {
+		t.Fatalf("traceparent = %q, want preserved", got)
+	}
+}
+
+func TestShutdownProvidersTimesOutOnHangingShutdown(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	hangingShutdown := func(ctx context.Context) error {
+		<-ctx.Done()
+		time.Sleep(1 * time.Second) // simulate a hanging / blocked shutdown
+		return nil
+	}
+
+	err := shutdownProviders(ctx, hangingShutdown)
+	if err == nil {
+		t.Fatal("shutdownProviders error = nil, want timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("shutdownProviders error = %v, want context.DeadlineExceeded", err)
+	}
+}
