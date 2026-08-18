@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	endorsementv1 "github.com/JakeFAU/chain-application/internal/endorsement/v1"
 	ledgerv1 "github.com/JakeFAU/chain-application/internal/ledger/v1"
 	"github.com/JakeFAU/chain-application/internal/ledgerstore"
 	"github.com/JakeFAU/chain-application/internal/signer"
@@ -185,4 +186,44 @@ func (s *Service) Admit(ctx context.Context, req AdmitRequest) (ledgerv1.Structu
 	}
 
 	return ledgerv1.StructuralRecord{}, fmt.Errorf("admit record exceeded %d retries due to chain head contention", s.maxRetries)
+}
+
+// AdmitEndorsement verifies actor signatures and admits an accepted endorsement payload to the ledger.
+func (s *Service) AdmitEndorsement(ctx context.Context, ledgerID ledgerv1.LedgerID, payload *endorsementv1.EndorsementAcceptedPayload) (ledgerv1.StructuralRecord, error) {
+	if payload == nil {
+		return ledgerv1.StructuralRecord{}, errors.New("endorsement payload cannot be nil")
+	}
+	if err := payload.Verify(); err != nil {
+		return ledgerv1.StructuralRecord{}, fmt.Errorf("verify endorsement signatures: %w", err)
+	}
+	encoded, err := payload.Encode()
+	if err != nil {
+		return ledgerv1.StructuralRecord{}, fmt.Errorf("encode endorsement payload: %w", err)
+	}
+	return s.Admit(ctx, AdmitRequest{
+		LedgerID:       ledgerID,
+		EventKind:      ledgerv1.EventKindEndorsementAccepted,
+		PayloadVersion: endorsementv1.PayloadVersionV1,
+		PayloadBytes:   encoded,
+	})
+}
+
+// AdmitRevocation verifies revoker signatures and admits an endorsement revocation payload to the ledger.
+func (s *Service) AdmitRevocation(ctx context.Context, ledgerID ledgerv1.LedgerID, payload *endorsementv1.EndorsementRevokedPayload) (ledgerv1.StructuralRecord, error) {
+	if payload == nil {
+		return ledgerv1.StructuralRecord{}, errors.New("revocation payload cannot be nil")
+	}
+	if err := payload.Verify(); err != nil {
+		return ledgerv1.StructuralRecord{}, fmt.Errorf("verify revocation signature: %w", err)
+	}
+	encoded, err := payload.Encode()
+	if err != nil {
+		return ledgerv1.StructuralRecord{}, fmt.Errorf("encode revocation payload: %w", err)
+	}
+	return s.Admit(ctx, AdmitRequest{
+		LedgerID:       ledgerID,
+		EventKind:      ledgerv1.EventKindEndorsementRevoked,
+		PayloadVersion: endorsementv1.PayloadVersionV1,
+		PayloadBytes:   encoded,
+	})
 }

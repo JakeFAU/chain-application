@@ -65,7 +65,11 @@ type Digest [digestBytes]byte
 
 type EventKind uint64
 
-const EventKindLedgerInitialized EventKind = 1
+const (
+	EventKindLedgerInitialized   EventKind = 1
+	EventKindEndorsementAccepted EventKind = 2
+	EventKindEndorsementRevoked  EventKind = 3
+)
 
 type SignatureStatus uint8
 

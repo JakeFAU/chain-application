@@ -29,5 +29,28 @@ event-body-v1 = {
 
 ledger-initialized-payload-v1 = {}
 
+endorsement-accepted-payload-v1 = {
+  0: 1,
+  1: bstr .size 65,
+  2: bstr .size 65,
+  3: tstr .size (1..128),
+  4: bstr .size (1..4096),
+  5: uint64,
+  6: bstr .size (8..72),
+  7: uint64,
+  8: bstr .size (8..72)
+}
+
+endorsement-revoked-payload-v1 = {
+  0: 1,
+  1: bstr .size 32,
+  2: bstr .size 65,
+  3: positive-uint64,
+  4: uint64,
+  5: tstr .size (0..256),
+  6: bstr .size (8..72)
+}
+
 uint64 = 0..18446744073709551615
 positive-uint64 = 1..18446744073709551615
+
