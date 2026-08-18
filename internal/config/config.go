@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,11 +36,14 @@ const (
 	minimumShutdownTimeout = time.Second
 	maximumShutdownTimeout = 9 * time.Second
 
-	invalidPortReason     = "invalid port"
-	invalidBooleanReason  = "invalid boolean"
-	invalidDurationReason = "invalid duration"
-	invalidRatioReason    = "invalid trace sample ratio"
+	invalidPortReason      = "invalid port"
+	invalidBooleanReason   = "invalid boolean"
+	invalidDurationReason  = "invalid duration"
+	invalidRatioReason     = "invalid trace sample ratio"
+	invalidProjectIDReason = "invalid project id"
 )
+
+var projectIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
 
 // LookupEnv reads one environment variable at the startup boundary.
 type LookupEnv func(string) (string, bool)
@@ -194,6 +198,9 @@ func loadTelemetry(lookup LookupEnv, buildVersion string) (Telemetry, error) {
 	projectID := lookupOrDefault(lookup, environmentProjectID, "")
 	if environment == EnvironmentProduction && projectID == "" {
 		return Telemetry{}, fmt.Errorf("%s is required in production", environmentProjectID)
+	}
+	if projectID != "" && !projectIDPattern.MatchString(projectID) {
+		return Telemetry{}, fmt.Errorf("%s: %s", environmentProjectID, invalidProjectIDReason)
 	}
 
 	return Telemetry{

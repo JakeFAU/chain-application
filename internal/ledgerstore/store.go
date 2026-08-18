@@ -32,9 +32,13 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-// Open connects to PostgreSQL and verifies the connection.
-func Open(ctx context.Context, databaseURL string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+// OpenWithConfig connects to PostgreSQL using a pre-configured connection pool
+// configuration and verifies the connection.
+func OpenWithConfig(ctx context.Context, config *pgxpool.Config) (*Store, error) {
+	if config == nil {
+		return nil, errors.New("pgxpool config cannot be nil")
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("create connection pool: %w", err)
 	}
@@ -43,6 +47,15 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 	return &Store{pool: pool}, nil
+}
+
+// Open connects to PostgreSQL and verifies the connection.
+func Open(ctx context.Context, databaseURL string) (*Store, error) {
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse database url: %w", err)
+	}
+	return OpenWithConfig(ctx, config)
 }
 
 // Close releases the connection pool.
