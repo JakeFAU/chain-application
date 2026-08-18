@@ -343,3 +343,54 @@ func TestHeadReturnsHighestSequenceRecord(t *testing.T) {
 		)
 	}
 }
+
+func TestScanRecords(t *testing.T) {
+	store := openTestStore(t)
+	ledgerID := newTestLedgerID(t)
+
+	// Scan empty ledger returns empty slice
+	emptyScan, err := store.ScanRecords(context.Background(), ledgerID, 1, 10)
+	if err != nil {
+		t.Fatalf("ScanRecords empty: %v", err)
+	}
+	if len(emptyScan) != 0 {
+		t.Fatalf("len(emptyScan) = %d, want 0", len(emptyScan))
+	}
+
+	// Append 3 records
+	genesis := newTestGenesisRecord(t, ledgerID)
+	if err := store.Append(context.Background(), genesis); err != nil {
+		t.Fatalf("Append genesis: %v", err)
+	}
+	rec2 := newTestContinuationRecord(t, ledgerID, 2, genesis.RecordDigest())
+	if err := store.Append(context.Background(), rec2); err != nil {
+		t.Fatalf("Append rec2: %v", err)
+	}
+	rec3 := newTestContinuationRecord(t, ledgerID, 3, rec2.RecordDigest())
+	if err := store.Append(context.Background(), rec3); err != nil {
+		t.Fatalf("Append rec3: %v", err)
+	}
+
+	// Scan all
+	allRecords, err := store.ScanRecords(context.Background(), ledgerID, 1, 10)
+	if err != nil {
+		t.Fatalf("ScanRecords all: %v", err)
+	}
+	if len(allRecords) != 3 {
+		t.Fatalf("len(allRecords) = %d, want 3", len(allRecords))
+	}
+	if allRecords[0].RecordDigest() != genesis.RecordDigest() ||
+		allRecords[1].RecordDigest() != rec2.RecordDigest() ||
+		allRecords[2].RecordDigest() != rec3.RecordDigest() {
+		t.Fatal("records returned out of sequence order")
+	}
+
+	// Scan from sequence 2 with limit 1
+	partial, err := store.ScanRecords(context.Background(), ledgerID, 2, 1)
+	if err != nil {
+		t.Fatalf("ScanRecords partial: %v", err)
+	}
+	if len(partial) != 1 || partial[0].RecordDigest() != rec2.RecordDigest() {
+		t.Fatalf("partial scan mismatch, want rec2")
+	}
+}

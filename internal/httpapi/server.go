@@ -11,6 +11,7 @@ import (
 
 	"github.com/JakeFAU/chain-application/internal/admission"
 	endorsementv1 "github.com/JakeFAU/chain-application/internal/endorsement/v1"
+	graphv1 "github.com/JakeFAU/chain-application/internal/graph/v1"
 	ledgerv1 "github.com/JakeFAU/chain-application/internal/ledger/v1"
 	"github.com/JakeFAU/chain-application/internal/ledgerstore"
 	"github.com/go-chi/chi/v5"
@@ -266,6 +267,81 @@ func (s *Server) RevokeEndorsement(
 		SequenceNumber: int(record.Event().Sequence()),
 		RecordDigest:   hex.EncodeToString(digest[:]),
 		EventKind:      int(record.Event().Kind()),
+	}, nil
+}
+
+func (s *Server) EvaluateConfidence(
+	ctx context.Context,
+	request EvaluateConfidenceRequestObject,
+) (EvaluateConfidenceResponseObject, error) {
+	if s.store == nil {
+		return EvaluateConfidence404JSONResponse{Error: "ledger store unavailable"}, nil
+	}
+
+	ledgerID, err := parseHex32(request.LedgerId)
+	if err != nil {
+		return EvaluateConfidence400JSONResponse{Error: "invalid ledger_id: must be 32-byte hex"}, nil
+	}
+	if request.Body == nil {
+		return EvaluateConfidence400JSONResponse{Error: "missing request body"}, nil
+	}
+
+	targetKey, err := graphv1.IdentityKeyFromHex(request.Body.TargetPublicKeyHex)
+	if err != nil {
+		return EvaluateConfidence400JSONResponse{Error: fmt.Sprintf("invalid target_public_key_hex: %v", err)}, nil
+	}
+
+	trustRoots := make(map[graphv1.IdentityKey]float64, len(request.Body.TrustRoots))
+	for _, root := range request.Body.TrustRoots {
+		rootKey, err := graphv1.IdentityKeyFromHex(root.PublicKeyHex)
+		if err != nil {
+			return EvaluateConfidence400JSONResponse{Error: fmt.Sprintf("invalid trust root %s: %v", root.PublicKeyHex, err)}, nil
+		}
+		trustRoots[rootKey] = float64(root.Weight)
+	}
+
+	topic := ""
+	if request.Body.Topic != nil {
+		topic = *request.Body.Topic
+	}
+
+	policy := graphv1.NewDefaultPolicy(trustRoots, topic)
+	if request.Body.MaxHops != nil {
+		policy.MaxHops = *request.Body.MaxHops
+	}
+	if request.Body.DecayFactor != nil {
+		policy.DecayFactor = float64(*request.Body.DecayFactor)
+	}
+
+	projector := graphv1.NewProjector(ledgerv1.LedgerID(ledgerID))
+	if _, err := projector.ReplayFromStore(ctx, s.store, 256); err != nil {
+		return nil, fmt.Errorf("replay ledger for confidence evaluation: %w", err)
+	}
+
+	evaluator := graphv1.NewEvaluator(projector.Graph())
+	result, err := evaluator.Evaluate(policy, targetKey)
+	if err != nil {
+		return EvaluateConfidence400JSONResponse{Error: err.Error()}, nil
+	}
+
+	contributingHex := make([]string, len(result.ContributingRecords))
+	for i, digest := range result.ContributingRecords {
+		contributingHex[i] = hex.EncodeToString(digest[:])
+	}
+
+	var topicPtr *string
+	if result.Topic != "" {
+		topicPtr = &result.Topic
+	}
+
+	return EvaluateConfidence200JSONResponse{
+		TargetPublicKeyHex:     result.Target.Hex(),
+		Topic:                  topicPtr,
+		ConfidenceScore:        float32(result.ConfidenceScore),
+		Algorithm:              result.Algorithm,
+		EvaluatedAtSequence:    int(result.EvaluatedAtSequence),
+		ContributingRecordsHex: contributingHex,
+		Explanation:            result.Explanation,
 	}, nil
 }
 
