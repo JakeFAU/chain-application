@@ -2,12 +2,24 @@ package httpapi
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
 
+	"github.com/JakeFAU/chain-application/internal/admission"
+	endorsementv1 "github.com/JakeFAU/chain-application/internal/endorsement/v1"
+	ledgerv1 "github.com/JakeFAU/chain-application/internal/ledger/v1"
+	"github.com/JakeFAU/chain-application/internal/ledgerstore"
 	"github.com/go-chi/chi/v5"
 )
 
-type Server struct{}
+type Server struct {
+	admission *admission.Service
+	store     *ledgerstore.Store
+}
 
 const (
 	healthStatus               = "ok"
@@ -17,11 +29,265 @@ const (
 
 var _ StrictServerInterface = (*Server)(nil)
 
+// NewServer creates a new HTTP API Server.
+func NewServer(admissionService *admission.Service, store *ledgerstore.Store) *Server {
+	return &Server{
+		admission: admissionService,
+		store:     store,
+	}
+}
+
 func (*Server) GetHealthz(
 	context.Context,
 	GetHealthzRequestObject,
 ) (GetHealthzResponseObject, error) {
 	return GetHealthz200JSONResponse{Status: healthStatus}, nil
+}
+
+func (s *Server) InitLedger(
+	ctx context.Context,
+	request InitLedgerRequestObject,
+) (InitLedgerResponseObject, error) {
+	if s.admission == nil {
+		return InitLedger400JSONResponse{Error: "admission service unavailable"}, nil
+	}
+
+	ledgerID, err := parseHex32(request.LedgerId)
+	if err != nil {
+		return InitLedger400JSONResponse{Error: "invalid ledger_id: must be 32-byte hex"}, nil
+	}
+
+	record, err := s.admission.InitLedger(ctx, ledgerv1.LedgerID(ledgerID))
+	if err != nil {
+		if errors.Is(err, admission.ErrLedgerAlreadyInitialized) {
+			return InitLedger409JSONResponse{Error: "ledger already initialized"}, nil
+		}
+		return nil, err
+	}
+
+	digest := record.RecordDigest()
+	return InitLedger201JSONResponse{
+		LedgerId:         hex.EncodeToString(ledgerID[:]),
+		SequenceNumber:   int(record.Event().Sequence()),
+		RecordDigest:     hex.EncodeToString(digest[:]),
+		AdmittedAtUnixMs: int(record.Event().AdmittedAtUnixMS()),
+	}, nil
+}
+
+func (s *Server) GetLedgerHead(
+	ctx context.Context,
+	request GetLedgerHeadRequestObject,
+) (GetLedgerHeadResponseObject, error) {
+	if s.store == nil {
+		return GetLedgerHead404JSONResponse{Error: "ledger store unavailable"}, nil
+	}
+
+	ledgerID, err := parseHex32(request.LedgerId)
+	if err != nil {
+		return GetLedgerHead404JSONResponse{Error: "invalid ledger_id: must be 32-byte hex"}, nil
+	}
+
+	head, err := s.store.Head(ctx, ledgerv1.LedgerID(ledgerID))
+	if err != nil {
+		return nil, err
+	}
+	if !head.Initialized() {
+		return GetLedgerHead404JSONResponse{Error: "ledger not found or uninitialized"}, nil
+	}
+
+	digest, _ := head.LastRecordDigest()
+	return GetLedgerHead200JSONResponse{
+		LedgerId:       hex.EncodeToString(ledgerID[:]),
+		SequenceNumber: int(head.LastSequence()),
+		RecordDigest:   hex.EncodeToString(digest[:]),
+	}, nil
+}
+
+func (s *Server) GetRecord(
+	ctx context.Context,
+	request GetRecordRequestObject,
+) (GetRecordResponseObject, error) {
+	if s.store == nil {
+		return GetRecord404JSONResponse{Error: "ledger store unavailable"}, nil
+	}
+
+	digest, err := parseHex32(request.RecordDigest)
+	if err != nil {
+		return GetRecord404JSONResponse{Error: "invalid record_digest: must be 32-byte hex"}, nil
+	}
+
+	record, err := s.store.Record(ctx, ledgerv1.Digest(digest))
+	if err != nil {
+		if errors.Is(err, ledgerstore.ErrRecordNotFound) {
+			return GetRecord404JSONResponse{Error: "record not found"}, nil
+		}
+		return nil, err
+	}
+
+	event := record.Event()
+	ledgerID := event.LedgerID()
+	resp := GetRecord200JSONResponse{
+		RecordDigest:       hex.EncodeToString(digest[:]),
+		LedgerId:           hex.EncodeToString(ledgerID[:]),
+		SequenceNumber:     int(event.Sequence()),
+		EventKind:          int(event.Kind()),
+		PayloadVersion:     int(event.PayloadVersion()),
+		AdmittedAtUnixMs:   int(event.AdmittedAtUnixMS()),
+		SignerKeyReference: record.SignerKeyReference(),
+		RecordBytesHex:     hex.EncodeToString(record.Bytes()),
+	}
+	if prevDigest, ok := event.PreviousRecordDigest(); ok {
+		prevHex := hex.EncodeToString(prevDigest[:])
+		resp.PreviousRecordDigest = &prevHex
+	}
+
+	return resp, nil
+}
+
+func (s *Server) AcceptEndorsement(
+	ctx context.Context,
+	request AcceptEndorsementRequestObject,
+) (AcceptEndorsementResponseObject, error) {
+	if s.admission == nil {
+		return AcceptEndorsement400JSONResponse{Error: "admission service unavailable"}, nil
+	}
+
+	ledgerID, err := parseHex32(request.LedgerId)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: "invalid ledger_id"}, nil
+	}
+	if request.Body == nil {
+		return AcceptEndorsement400JSONResponse{Error: "missing request body"}, nil
+	}
+
+	proposerPub, err := parseHexPublicKey(request.Body.ProposerPublicKeyHex)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: "invalid proposer_public_key_hex"}, nil
+	}
+	subjectPub, err := parseHexPublicKey(request.Body.SubjectPublicKeyHex)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: "invalid subject_public_key_hex"}, nil
+	}
+	claimBody, err := hex.DecodeString(request.Body.ClaimBodyHex)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: "invalid claim_body_hex"}, nil
+	}
+	proposerSig, err := hex.DecodeString(request.Body.ProposerSignatureHex)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: "invalid proposer_signature_hex"}, nil
+	}
+	subjectSig, err := hex.DecodeString(request.Body.SubjectSignatureHex)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: "invalid subject_signature_hex"}, nil
+	}
+
+	payload, err := endorsementv1.NewAcceptedPayload(
+		proposerPub,
+		subjectPub,
+		request.Body.Topic,
+		claimBody,
+		uint64(request.Body.ProposedAtUnixMs),
+		proposerSig,
+		uint64(request.Body.AcceptedAtUnixMs),
+		subjectSig,
+	)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: err.Error()}, nil
+	}
+
+	record, err := s.admission.AdmitEndorsement(ctx, ledgerv1.LedgerID(ledgerID), payload)
+	if err != nil {
+		return AcceptEndorsement400JSONResponse{Error: err.Error()}, nil
+	}
+
+	digest := record.RecordDigest()
+	return AcceptEndorsement201JSONResponse{
+		LedgerId:       hex.EncodeToString(ledgerID[:]),
+		SequenceNumber: int(record.Event().Sequence()),
+		RecordDigest:   hex.EncodeToString(digest[:]),
+		EventKind:      int(record.Event().Kind()),
+	}, nil
+}
+
+func (s *Server) RevokeEndorsement(
+	ctx context.Context,
+	request RevokeEndorsementRequestObject,
+) (RevokeEndorsementResponseObject, error) {
+	if s.admission == nil {
+		return RevokeEndorsement400JSONResponse{Error: "admission service unavailable"}, nil
+	}
+
+	ledgerID, err := parseHex32(request.LedgerId)
+	if err != nil {
+		return RevokeEndorsement400JSONResponse{Error: "invalid ledger_id"}, nil
+	}
+	if request.Body == nil {
+		return RevokeEndorsement400JSONResponse{Error: "missing request body"}, nil
+	}
+
+	targetDigest, err := parseHex32(request.Body.TargetRecordDigest)
+	if err != nil {
+		return RevokeEndorsement400JSONResponse{Error: "invalid target_record_digest"}, nil
+	}
+	revokerPub, err := parseHexPublicKey(request.Body.RevokerPublicKeyHex)
+	if err != nil {
+		return RevokeEndorsement400JSONResponse{Error: "invalid revoker_public_key_hex"}, nil
+	}
+	revokerSig, err := hex.DecodeString(request.Body.RevokerSignatureHex)
+	if err != nil {
+		return RevokeEndorsement400JSONResponse{Error: "invalid revoker_signature_hex"}, nil
+	}
+
+	reason := ""
+	if request.Body.Reason != nil {
+		reason = *request.Body.Reason
+	}
+
+	payload, err := endorsementv1.NewRevokedPayload(
+		targetDigest,
+		revokerPub,
+		endorsementv1.RevokerRole(request.Body.Role),
+		uint64(request.Body.RevokedAtUnixMs),
+		reason,
+		revokerSig,
+	)
+	if err != nil {
+		return RevokeEndorsement400JSONResponse{Error: err.Error()}, nil
+	}
+
+	record, err := s.admission.AdmitRevocation(ctx, ledgerv1.LedgerID(ledgerID), payload)
+	if err != nil {
+		return RevokeEndorsement400JSONResponse{Error: err.Error()}, nil
+	}
+
+	digest := record.RecordDigest()
+	return RevokeEndorsement201JSONResponse{
+		LedgerId:       hex.EncodeToString(ledgerID[:]),
+		SequenceNumber: int(record.Event().Sequence()),
+		RecordDigest:   hex.EncodeToString(digest[:]),
+		EventKind:      int(record.Event().Kind()),
+	}, nil
+}
+
+func parseHex32(s string) ([32]byte, error) {
+	var out [32]byte
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return out, err
+	}
+	if len(b) != 32 {
+		return out, fmt.Errorf("expected 32 bytes, got %d", len(b))
+	}
+	copy(out[:], b)
+	return out, nil
+}
+
+func parseHexPublicKey(s string) (*ecdsa.PublicKey, error) {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, err
+	}
+	return ecdsa.ParseUncompressedPublicKey(elliptic.P256(), b)
 }
 
 // NewHandler builds the routed strict API handler and applies wrap once at the

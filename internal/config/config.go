@@ -14,6 +14,8 @@ const (
 	environmentPort                  = "PORT"
 	environmentLogLevel              = "CHAIN_LOG_LEVEL"
 	environmentShutdownTimeout       = "CHAIN_SHUTDOWN_TIMEOUT"
+	environmentDatabaseURL           = "DATABASE_URL"
+	environmentSignerKeyReference    = "CHAIN_SIGNER_KEY_REFERENCE"
 	environmentTelemetryEnabled      = "CHAIN_OTEL_ENABLED"
 	environmentTraceSampleRatio      = "CHAIN_OTEL_TRACE_SAMPLE_RATIO"
 	environmentOTELTracesSampler     = "OTEL_TRACES_SAMPLER"
@@ -25,6 +27,7 @@ const (
 	defaultPort                  = "8080"
 	defaultLogLevel              = "info"
 	defaultShutdownTimeout       = "8s"
+	defaultSignerKeyReference    = "local:p256:v1"
 	defaultTelemetryEnabled      = "false"
 	defaultTraceSampleRatio      = "1.0"
 	defaultDeploymentEnvironment = "local"
@@ -88,10 +91,12 @@ type Telemetry struct {
 
 // Config contains all typed application startup configuration.
 type Config struct {
-	Port            uint16
-	LogLevel        LogLevel
-	ShutdownTimeout time.Duration
-	Telemetry       Telemetry
+	Port               uint16
+	LogLevel           LogLevel
+	ShutdownTimeout    time.Duration
+	DatabaseURL        string
+	SignerKeyReference string
+	Telemetry          Telemetry
 }
 
 // Address returns the listener address for the configured port on every interface.
@@ -121,11 +126,16 @@ func Load(lookup LookupEnv, buildVersion string) (Config, error) {
 		return Config{}, err
 	}
 
+	databaseURL, _ := lookup(environmentDatabaseURL)
+	signerKeyRef := lookupOrDefault(lookup, environmentSignerKeyReference, defaultSignerKeyReference)
+
 	return Config{
-		Port:            port,
-		LogLevel:        logLevel,
-		ShutdownTimeout: shutdownTimeout,
-		Telemetry:       telemetry,
+		Port:               port,
+		LogLevel:           logLevel,
+		ShutdownTimeout:    shutdownTimeout,
+		DatabaseURL:        databaseURL,
+		SignerKeyReference: signerKeyRef,
+		Telemetry:          telemetry,
 	}, nil
 }
 
