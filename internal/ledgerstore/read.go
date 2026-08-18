@@ -23,6 +23,14 @@ FROM ledger_record
 WHERE record_digest = $1
 `
 
+const selectRecordsFromSequenceStatement = `
+SELECT record_bytes
+FROM ledger_record
+WHERE ledger_id = $1 AND sequence_number >= $2
+ORDER BY sequence_number ASC
+LIMIT $3
+`
+
 // Head returns the chain state established by the highest-sequence record in
 // the ledger, or uninitialized state when the ledger holds no records.
 func (store *Store) Head(
@@ -77,4 +85,41 @@ func (store *Store) Record(
 		)
 	}
 	return record, nil
+}
+
+// ScanRecords reads up to limit records for a ledger starting from sequenceNumber in ascending order.
+func (store *Store) ScanRecords(
+	ctx context.Context,
+	ledgerID ledgerv1.LedgerID,
+	fromSequence uint64,
+	limit int,
+) ([]ledgerv1.StructuralRecord, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := store.pool.Query(ctx, selectRecordsFromSequenceStatement, ledgerID[:], unsignedNumeric(fromSequence), limit)
+	if err != nil {
+		return nil, fmt.Errorf("scan ledger records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []ledgerv1.StructuralRecord
+	for rows.Next() {
+		var recordBytes []byte
+		if err := rows.Scan(&recordBytes); err != nil {
+			return nil, fmt.Errorf("scan record row: %w", err)
+		}
+		record, err := ledgerv1.ValidateRecordStructure(recordBytes)
+		if err != nil {
+			return nil, fmt.Errorf("validate scanned record: %w", err)
+		}
+		if recordLedgerID := record.Event().LedgerID(); recordLedgerID != ledgerID {
+			return nil, fmt.Errorf("scanned record for ledger %x does not re-derive to that ledger_id", ledgerID)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate scanned records: %w", err)
+	}
+	return records, nil
 }

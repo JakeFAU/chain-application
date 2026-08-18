@@ -67,9 +67,29 @@ type AdmitResponse struct {
 	SequenceNumber int    `json:"sequence_number"`
 }
 
+// ConfidenceResponse defines model for ConfidenceResponse.
+type ConfidenceResponse struct {
+	Algorithm              string   `json:"algorithm"`
+	ConfidenceScore        float32  `json:"confidence_score"`
+	ContributingRecordsHex []string `json:"contributing_records_hex"`
+	EvaluatedAtSequence    int      `json:"evaluated_at_sequence"`
+	Explanation            string   `json:"explanation"`
+	TargetPublicKeyHex     string   `json:"target_public_key_hex"`
+	Topic                  *string  `json:"topic,omitempty"`
+}
+
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+// EvaluateConfidenceRequest defines model for EvaluateConfidenceRequest.
+type EvaluateConfidenceRequest struct {
+	DecayFactor        *float32        `json:"decay_factor,omitempty"`
+	MaxHops            *int            `json:"max_hops,omitempty"`
+	TargetPublicKeyHex string          `json:"target_public_key_hex"`
+	Topic              *string         `json:"topic,omitempty"`
+	TrustRoots         []TrustRootSpec `json:"trust_roots"`
 }
 
 // HeadResponse defines model for HeadResponse.
@@ -121,6 +141,15 @@ type RevokeEndorsementRequest struct {
 // RevokeEndorsementRequestRole defines model for RevokeEndorsementRequest.Role.
 type RevokeEndorsementRequestRole int
 
+// TrustRootSpec defines model for TrustRootSpec.
+type TrustRootSpec struct {
+	PublicKeyHex string  `json:"public_key_hex"`
+	Weight       float32 `json:"weight"`
+}
+
+// EvaluateConfidenceJSONRequestBody defines body for EvaluateConfidence for application/json ContentType.
+type EvaluateConfidenceJSONRequestBody = EvaluateConfidenceRequest
+
 // AcceptEndorsementJSONRequestBody defines body for AcceptEndorsement for application/json ContentType.
 type AcceptEndorsementJSONRequestBody = AcceptEndorsementRequest
 
@@ -132,6 +161,9 @@ type ServerInterface interface {
 	// GetHealthz Health check endpoint
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
+	// EvaluateConfidence Evaluate explainable contextual confidence for a target identity
+	// (POST /v1/ledgers/{ledger_id}/confidence)
+	EvaluateConfidence(w http.ResponseWriter, r *http.Request, ledgerId string)
 	// AcceptEndorsement Admit an accepted endorsement to the ledger
 	// (POST /v1/ledgers/{ledger_id}/endorsements/accept)
 	AcceptEndorsement(w http.ResponseWriter, r *http.Request, ledgerId string)
@@ -156,6 +188,12 @@ type Unimplemented struct{}
 // GetHealthz Health check endpoint
 // (GET /healthz)
 func (_ Unimplemented) GetHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// EvaluateConfidence Evaluate explainable contextual confidence for a target identity
+// (POST /v1/ledgers/{ledger_id}/confidence)
+func (_ Unimplemented) EvaluateConfidence(w http.ResponseWriter, r *http.Request, ledgerId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -203,6 +241,32 @@ func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealthz(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EvaluateConfidence operation middleware
+func (siw *ServerInterfaceWrapper) EvaluateConfidence(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ledger_id" -------------
+	var ledgerId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ledger_id", chi.URLParam(r, "ledger_id"), &ledgerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ledger_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EvaluateConfidence(w, r, ledgerId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -473,6 +537,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/ledgers/{ledger_id}/endorsements/revoke", wrapper.RevokeEndorsement)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledgers/{ledger_id}/confidence", wrapper.EvaluateConfidence)
+	})
 
 	return r
 }
@@ -494,6 +561,57 @@ func (response GetHealthz200JSONResponse) VisitGetHealthzResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EvaluateConfidenceRequestObject struct {
+	LedgerId string `json:"ledger_id"`
+	Body     *EvaluateConfidenceJSONRequestBody
+}
+
+type EvaluateConfidenceResponseObject interface {
+	VisitEvaluateConfidenceResponse(w http.ResponseWriter) error
+}
+
+type EvaluateConfidence200JSONResponse ConfidenceResponse
+
+func (response EvaluateConfidence200JSONResponse) VisitEvaluateConfidenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EvaluateConfidence400JSONResponse ErrorResponse
+
+func (response EvaluateConfidence400JSONResponse) VisitEvaluateConfidenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EvaluateConfidence404JSONResponse ErrorResponse
+
+func (response EvaluateConfidence404JSONResponse) VisitEvaluateConfidenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -727,6 +845,9 @@ type StrictServerInterface interface {
 	// GetHealthz Health check endpoint
 	// (GET /healthz)
 	GetHealthz(ctx context.Context, request GetHealthzRequestObject) (GetHealthzResponseObject, error)
+	// EvaluateConfidence Evaluate explainable contextual confidence for a target identity
+	// (POST /v1/ledgers/{ledger_id}/confidence)
+	EvaluateConfidence(ctx context.Context, request EvaluateConfidenceRequestObject) (EvaluateConfidenceResponseObject, error)
 	// AcceptEndorsement Admit an accepted endorsement to the ledger
 	// (POST /v1/ledgers/{ledger_id}/endorsements/accept)
 	AcceptEndorsement(ctx context.Context, request AcceptEndorsementRequestObject) (AcceptEndorsementResponseObject, error)
@@ -800,6 +921,39 @@ func (sh *strictHandler) GetHealthz(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthzResponseObject); ok {
 		if err := validResponse.VisitGetHealthzResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EvaluateConfidence operation middleware
+func (sh *strictHandler) EvaluateConfidence(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	var request EvaluateConfidenceRequestObject
+
+	request.LedgerId = ledgerId
+
+	var body EvaluateConfidenceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EvaluateConfidence(ctx, request.(EvaluateConfidenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EvaluateConfidence")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EvaluateConfidenceResponseObject); ok {
+		if err := validResponse.VisitEvaluateConfidenceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -224,6 +224,10 @@ func (server errorServer) RevokeEndorsement(context.Context, RevokeEndorsementRe
 	return nil, server.err
 }
 
+func (server errorServer) EvaluateConfidence(context.Context, EvaluateConfidenceRequestObject) (EvaluateConfidenceResponseObject, error) {
+	return nil, server.err
+}
+
 func identityWrapper(handler http.Handler) http.Handler {
 	return handler
 }
@@ -382,7 +386,38 @@ func TestHTTPAdmissionLifecycleEndToEnd(t *testing.T) {
 	}
 	admittedEndorsementDigest := acceptResp.RecordDigest
 
-	// 5. Revoke Endorsement via HTTP
+	// 5. Evaluate Confidence via HTTP (Before Revocation)
+	confReqBody := EvaluateConfidenceRequest{
+		TargetPublicKeyHex: subjectPubHex,
+		Topic:              &topic,
+		TrustRoots: []TrustRootSpec{
+			{
+				PublicKeyHex: proposerPubHex,
+				Weight:       1.0,
+			},
+		},
+	}
+	confJSON, _ := json.Marshal(confReqBody)
+	confReq := httptest.NewRequest(http.MethodPost, "/v1/ledgers/"+ledgerID+"/confidence", bytes.NewReader(confJSON))
+	confReq.Header.Set("Content-Type", "application/json")
+	confRec := httptest.NewRecorder()
+	handler.ServeHTTP(confRec, confReq)
+
+	if confRec.Code != http.StatusOK {
+		t.Fatalf("evaluate confidence status = %d, want 200; body: %s", confRec.Code, confRec.Body.String())
+	}
+	var confResp ConfidenceResponse
+	if err := json.Unmarshal(confRec.Body.Bytes(), &confResp); err != nil {
+		t.Fatalf("decode confidence response: %v", err)
+	}
+	if confResp.ConfidenceScore != 0.6 {
+		t.Fatalf("confidence score = %f, want 0.6", confResp.ConfidenceScore)
+	}
+	if len(confResp.ContributingRecordsHex) != 1 || confResp.ContributingRecordsHex[0] != admittedEndorsementDigest {
+		t.Fatalf("contributing records = %v, want [%s]", confResp.ContributingRecordsHex, admittedEndorsementDigest)
+	}
+
+	// 6. Revoke Endorsement via HTTP
 	revokedAt := uint64(1_735_689_800_000)
 	reason := "expired endorsement"
 	revocation, err := endorsementv1.NewRevocation(
@@ -423,6 +458,26 @@ func TestHTTPAdmissionLifecycleEndToEnd(t *testing.T) {
 	}
 	if revokeResp.SequenceNumber != 3 || revokeResp.EventKind != int(ledgerv1.EventKindEndorsementRevoked) {
 		t.Fatalf("admit revocation = seq %d kind %d, want seq 3 kind 3", revokeResp.SequenceNumber, revokeResp.EventKind)
+	}
+
+	// 7. Evaluate Confidence via HTTP (After Revocation)
+	confAfterReq := httptest.NewRequest(http.MethodPost, "/v1/ledgers/"+ledgerID+"/confidence", bytes.NewReader(confJSON))
+	confAfterReq.Header.Set("Content-Type", "application/json")
+	confAfterRec := httptest.NewRecorder()
+	handler.ServeHTTP(confAfterRec, confAfterReq)
+
+	if confAfterRec.Code != http.StatusOK {
+		t.Fatalf("evaluate confidence after revocation status = %d, want 200", confAfterRec.Code)
+	}
+	var confAfterResp ConfidenceResponse
+	if err := json.Unmarshal(confAfterRec.Body.Bytes(), &confAfterResp); err != nil {
+		t.Fatalf("decode confidence response after revocation: %v", err)
+	}
+	if confAfterResp.ConfidenceScore != 0.0 {
+		t.Fatalf("confidence score after revocation = %f, want 0.0", confAfterResp.ConfidenceScore)
+	}
+	if len(confAfterResp.ContributingRecordsHex) != 0 {
+		t.Fatalf("contributing records after revocation = %v, want []", confAfterResp.ContributingRecordsHex)
 	}
 }
 

@@ -170,6 +170,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/ledgers/{ledger_id}/confidence:
+    post:
+      operationId: evaluateConfidence
+      summary: Evaluate explainable contextual confidence for a target identity
+      parameters:
+        - name: ledger_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateConfidenceRequest"
+      responses:
+        "200":
+          description: Computed confidence and cryptographic provenance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfidenceResponse"
+        "400":
+          description: Invalid request or policy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ledger not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthzResponse:
@@ -354,3 +391,71 @@ components:
       properties:
         error:
           type: string
+
+    TrustRootSpec:
+      type: object
+      additionalProperties: false
+      required: [public_key_hex, weight]
+      properties:
+        public_key_hex:
+          type: string
+          pattern: '^[0-9a-f]{130}$'
+        weight:
+          type: number
+          minimum: 0.001
+          maximum: 1.0
+
+    EvaluateConfidenceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - target_public_key_hex
+        - trust_roots
+      properties:
+        target_public_key_hex:
+          type: string
+          pattern: '^[0-9a-f]{130}$'
+        topic:
+          type: string
+        max_hops:
+          type: integer
+          minimum: 1
+          maximum: 10
+        decay_factor:
+          type: number
+          minimum: 0.01
+          maximum: 0.99
+        trust_roots:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/TrustRootSpec"
+
+    ConfidenceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - target_public_key_hex
+        - confidence_score
+        - algorithm
+        - evaluated_at_sequence
+        - contributing_records_hex
+        - explanation
+      properties:
+        target_public_key_hex:
+          type: string
+        topic:
+          type: string
+        confidence_score:
+          type: number
+        algorithm:
+          type: string
+        evaluated_at_sequence:
+          type: integer
+        contributing_records_hex:
+          type: array
+          items:
+            type: string
+        explanation:
+          type: string
+
