@@ -6,6 +6,7 @@ paths:
   /healthz:
     get:
       operationId: getHealthz
+      summary: Health check endpoint
       responses:
         "200":
           description: Service is healthy.
@@ -13,6 +14,162 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthzResponse"
+
+  /v1/ledgers/{ledger_id}/init:
+    post:
+      operationId: initLedger
+      summary: Initialize a new ledger with its genesis record
+      parameters:
+        - name: ledger_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        "201":
+          description: Ledger initialized successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InitLedgerResponse"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Ledger already initialized.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/ledgers/{ledger_id}/head:
+    get:
+      operationId: getLedgerHead
+      summary: Get the current chain head of a ledger
+      parameters:
+        - name: ledger_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        "200":
+          description: Current ledger head.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeadResponse"
+        "404":
+          description: Ledger not found or uninitialized.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/records/{record_digest}:
+    get:
+      operationId: getRecord
+      summary: Get a ledger record by digest
+      parameters:
+        - name: record_digest
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        "200":
+          description: Stored ledger record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordResponse"
+        "404":
+          description: Record not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/ledgers/{ledger_id}/endorsements/accept:
+    post:
+      operationId: acceptEndorsement
+      summary: Admit an accepted endorsement to the ledger
+      parameters:
+        - name: ledger_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptEndorsementRequest"
+      responses:
+        "201":
+          description: Endorsement admitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdmitResponse"
+        "400":
+          description: Invalid request or signatures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ledger not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/ledgers/{ledger_id}/endorsements/revoke:
+    post:
+      operationId: revokeEndorsement
+      summary: Admit an endorsement revocation to the ledger
+      parameters:
+        - name: ledger_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeEndorsementRequest"
+      responses:
+        "201":
+          description: Revocation admitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdmitResponse"
+        "400":
+          description: Invalid request or revoker signature.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ledger not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthzResponse:
@@ -23,3 +180,177 @@ components:
         status:
           type: string
           enum: [ok]
+
+    InitLedgerResponse:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, sequence_number, record_digest, admitted_at_unix_ms]
+      properties:
+        ledger_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        sequence_number:
+          type: integer
+          minimum: 1
+        record_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        admitted_at_unix_ms:
+          type: integer
+          minimum: 0
+
+    HeadResponse:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, sequence_number, record_digest]
+      properties:
+        ledger_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        sequence_number:
+          type: integer
+          minimum: 1
+        record_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+
+    RecordResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - record_digest
+        - ledger_id
+        - sequence_number
+        - event_kind
+        - payload_version
+        - admitted_at_unix_ms
+        - signer_key_reference
+        - record_bytes_hex
+      properties:
+        record_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        ledger_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        sequence_number:
+          type: integer
+          minimum: 1
+        previous_record_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        event_kind:
+          type: integer
+          minimum: 1
+        payload_version:
+          type: integer
+          minimum: 1
+        admitted_at_unix_ms:
+          type: integer
+          minimum: 0
+        signer_key_reference:
+          type: string
+        record_bytes_hex:
+          type: string
+
+    AcceptEndorsementRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - proposer_public_key_hex
+        - subject_public_key_hex
+        - topic
+        - claim_body_hex
+        - proposed_at_unix_ms
+        - proposer_signature_hex
+        - accepted_at_unix_ms
+        - subject_signature_hex
+      properties:
+        proposer_public_key_hex:
+          type: string
+          pattern: '^[0-9a-f]{130}$'
+        subject_public_key_hex:
+          type: string
+          pattern: '^[0-9a-f]{130}$'
+        topic:
+          type: string
+          minLength: 1
+          maxLength: 128
+        claim_body_hex:
+          type: string
+          minLength: 2
+          maxLength: 8192
+        proposed_at_unix_ms:
+          type: integer
+          minimum: 0
+        proposer_signature_hex:
+          type: string
+          minLength: 16
+          maxLength: 144
+        accepted_at_unix_ms:
+          type: integer
+          minimum: 0
+        subject_signature_hex:
+          type: string
+          minLength: 16
+          maxLength: 144
+
+    RevokeEndorsementRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - target_record_digest
+        - revoker_public_key_hex
+        - role
+        - revoked_at_unix_ms
+        - revoker_signature_hex
+      properties:
+        target_record_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        revoker_public_key_hex:
+          type: string
+          pattern: '^[0-9a-f]{130}$'
+        role:
+          type: integer
+          enum: [1, 2]
+        revoked_at_unix_ms:
+          type: integer
+          minimum: 0
+        reason:
+          type: string
+          maxLength: 256
+        revoker_signature_hex:
+          type: string
+          minLength: 16
+          maxLength: 144
+
+    AdmitResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ledger_id
+        - sequence_number
+        - record_digest
+        - event_kind
+      properties:
+        ledger_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        sequence_number:
+          type: integer
+          minimum: 1
+        record_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        event_kind:
+          type: integer
+          minimum: 1
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string

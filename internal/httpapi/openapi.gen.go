@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/runtime"
 )
 
 // Defines values for HealthzResponseStatus.
@@ -28,6 +29,56 @@ func (e HealthzResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for RevokeEndorsementRequestRole.
+const (
+	N1 RevokeEndorsementRequestRole = 1
+	N2 RevokeEndorsementRequestRole = 2
+)
+
+// Valid indicates whether the value is a known member of the RevokeEndorsementRequestRole enum.
+func (e RevokeEndorsementRequestRole) Valid() bool {
+	switch e {
+	case N1:
+		return true
+	case N2:
+		return true
+	default:
+		return false
+	}
+}
+
+// AcceptEndorsementRequest defines model for AcceptEndorsementRequest.
+type AcceptEndorsementRequest struct {
+	AcceptedAtUnixMs     int    `json:"accepted_at_unix_ms"`
+	ClaimBodyHex         string `json:"claim_body_hex"`
+	ProposedAtUnixMs     int    `json:"proposed_at_unix_ms"`
+	ProposerPublicKeyHex string `json:"proposer_public_key_hex"`
+	ProposerSignatureHex string `json:"proposer_signature_hex"`
+	SubjectPublicKeyHex  string `json:"subject_public_key_hex"`
+	SubjectSignatureHex  string `json:"subject_signature_hex"`
+	Topic                string `json:"topic"`
+}
+
+// AdmitResponse defines model for AdmitResponse.
+type AdmitResponse struct {
+	EventKind      int    `json:"event_kind"`
+	LedgerId       string `json:"ledger_id"`
+	RecordDigest   string `json:"record_digest"`
+	SequenceNumber int    `json:"sequence_number"`
+}
+
+// ErrorResponse defines model for ErrorResponse.
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+// HeadResponse defines model for HeadResponse.
+type HeadResponse struct {
+	LedgerId       string `json:"ledger_id"`
+	RecordDigest   string `json:"record_digest"`
+	SequenceNumber int    `json:"sequence_number"`
+}
+
 // HealthzResponse defines model for HealthzResponse.
 type HealthzResponse struct {
 	Status HealthzResponseStatus `json:"status"`
@@ -36,19 +87,105 @@ type HealthzResponse struct {
 // HealthzResponseStatus defines model for HealthzResponse.Status.
 type HealthzResponseStatus string
 
+// InitLedgerResponse defines model for InitLedgerResponse.
+type InitLedgerResponse struct {
+	AdmittedAtUnixMs int    `json:"admitted_at_unix_ms"`
+	LedgerId         string `json:"ledger_id"`
+	RecordDigest     string `json:"record_digest"`
+	SequenceNumber   int    `json:"sequence_number"`
+}
+
+// RecordResponse defines model for RecordResponse.
+type RecordResponse struct {
+	AdmittedAtUnixMs     int     `json:"admitted_at_unix_ms"`
+	EventKind            int     `json:"event_kind"`
+	LedgerId             string  `json:"ledger_id"`
+	PayloadVersion       int     `json:"payload_version"`
+	PreviousRecordDigest *string `json:"previous_record_digest,omitempty"`
+	RecordBytesHex       string  `json:"record_bytes_hex"`
+	RecordDigest         string  `json:"record_digest"`
+	SequenceNumber       int     `json:"sequence_number"`
+	SignerKeyReference   string  `json:"signer_key_reference"`
+}
+
+// RevokeEndorsementRequest defines model for RevokeEndorsementRequest.
+type RevokeEndorsementRequest struct {
+	Reason              *string                      `json:"reason,omitempty"`
+	RevokedAtUnixMs     int                          `json:"revoked_at_unix_ms"`
+	RevokerPublicKeyHex string                       `json:"revoker_public_key_hex"`
+	RevokerSignatureHex string                       `json:"revoker_signature_hex"`
+	Role                RevokeEndorsementRequestRole `json:"role"`
+	TargetRecordDigest  string                       `json:"target_record_digest"`
+}
+
+// RevokeEndorsementRequestRole defines model for RevokeEndorsementRequest.Role.
+type RevokeEndorsementRequestRole int
+
+// AcceptEndorsementJSONRequestBody defines body for AcceptEndorsement for application/json ContentType.
+type AcceptEndorsementJSONRequestBody = AcceptEndorsementRequest
+
+// RevokeEndorsementJSONRequestBody defines body for RevokeEndorsement for application/json ContentType.
+type RevokeEndorsementJSONRequestBody = RevokeEndorsementRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-
+	// GetHealthz Health check endpoint
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
+	// AcceptEndorsement Admit an accepted endorsement to the ledger
+	// (POST /v1/ledgers/{ledger_id}/endorsements/accept)
+	AcceptEndorsement(w http.ResponseWriter, r *http.Request, ledgerId string)
+	// RevokeEndorsement Admit an endorsement revocation to the ledger
+	// (POST /v1/ledgers/{ledger_id}/endorsements/revoke)
+	RevokeEndorsement(w http.ResponseWriter, r *http.Request, ledgerId string)
+	// GetLedgerHead Get the current chain head of a ledger
+	// (GET /v1/ledgers/{ledger_id}/head)
+	GetLedgerHead(w http.ResponseWriter, r *http.Request, ledgerId string)
+	// InitLedger Initialize a new ledger with its genesis record
+	// (POST /v1/ledgers/{ledger_id}/init)
+	InitLedger(w http.ResponseWriter, r *http.Request, ledgerId string)
+	// GetRecord Get a ledger record by digest
+	// (GET /v1/records/{record_digest})
+	GetRecord(w http.ResponseWriter, r *http.Request, recordDigest string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
 
+// GetHealthz Health check endpoint
 // (GET /healthz)
 func (_ Unimplemented) GetHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AcceptEndorsement Admit an accepted endorsement to the ledger
+// (POST /v1/ledgers/{ledger_id}/endorsements/accept)
+func (_ Unimplemented) AcceptEndorsement(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RevokeEndorsement Admit an endorsement revocation to the ledger
+// (POST /v1/ledgers/{ledger_id}/endorsements/revoke)
+func (_ Unimplemented) RevokeEndorsement(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetLedgerHead Get the current chain head of a ledger
+// (GET /v1/ledgers/{ledger_id}/head)
+func (_ Unimplemented) GetLedgerHead(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// InitLedger Initialize a new ledger with its genesis record
+// (POST /v1/ledgers/{ledger_id}/init)
+func (_ Unimplemented) InitLedger(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetRecord Get a ledger record by digest
+// (GET /v1/records/{record_digest})
+func (_ Unimplemented) GetRecord(w http.ResponseWriter, r *http.Request, recordDigest string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -66,6 +203,136 @@ func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealthz(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptEndorsement operation middleware
+func (siw *ServerInterfaceWrapper) AcceptEndorsement(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ledger_id" -------------
+	var ledgerId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ledger_id", chi.URLParam(r, "ledger_id"), &ledgerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ledger_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptEndorsement(w, r, ledgerId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeEndorsement operation middleware
+func (siw *ServerInterfaceWrapper) RevokeEndorsement(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ledger_id" -------------
+	var ledgerId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ledger_id", chi.URLParam(r, "ledger_id"), &ledgerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ledger_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeEndorsement(w, r, ledgerId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLedgerHead operation middleware
+func (siw *ServerInterfaceWrapper) GetLedgerHead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ledger_id" -------------
+	var ledgerId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ledger_id", chi.URLParam(r, "ledger_id"), &ledgerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ledger_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLedgerHead(w, r, ledgerId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InitLedger operation middleware
+func (siw *ServerInterfaceWrapper) InitLedger(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ledger_id" -------------
+	var ledgerId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ledger_id", chi.URLParam(r, "ledger_id"), &ledgerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ledger_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InitLedger(w, r, ledgerId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRecord operation middleware
+func (siw *ServerInterfaceWrapper) GetRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "record_digest" -------------
+	var recordDigest string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "record_digest", chi.URLParam(r, "record_digest"), &recordDigest, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "record_digest", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecord(w, r, recordDigest)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -191,6 +458,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/healthz", wrapper.GetHealthz)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledgers/{ledger_id}/init", wrapper.InitLedger)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/ledgers/{ledger_id}/head", wrapper.GetLedgerHead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/records/{record_digest}", wrapper.GetRecord)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledgers/{ledger_id}/endorsements/accept", wrapper.AcceptEndorsement)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/ledgers/{ledger_id}/endorsements/revoke", wrapper.RevokeEndorsement)
+	})
 
 	return r
 }
@@ -216,11 +498,250 @@ func (response GetHealthz200JSONResponse) VisitGetHealthzResponse(w http.Respons
 	return err
 }
 
+type AcceptEndorsementRequestObject struct {
+	LedgerId string `json:"ledger_id"`
+	Body     *AcceptEndorsementJSONRequestBody
+}
+
+type AcceptEndorsementResponseObject interface {
+	VisitAcceptEndorsementResponse(w http.ResponseWriter) error
+}
+
+type AcceptEndorsement201JSONResponse AdmitResponse
+
+func (response AcceptEndorsement201JSONResponse) VisitAcceptEndorsementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptEndorsement400JSONResponse ErrorResponse
+
+func (response AcceptEndorsement400JSONResponse) VisitAcceptEndorsementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptEndorsement404JSONResponse ErrorResponse
+
+func (response AcceptEndorsement404JSONResponse) VisitAcceptEndorsementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEndorsementRequestObject struct {
+	LedgerId string `json:"ledger_id"`
+	Body     *RevokeEndorsementJSONRequestBody
+}
+
+type RevokeEndorsementResponseObject interface {
+	VisitRevokeEndorsementResponse(w http.ResponseWriter) error
+}
+
+type RevokeEndorsement201JSONResponse AdmitResponse
+
+func (response RevokeEndorsement201JSONResponse) VisitRevokeEndorsementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEndorsement400JSONResponse ErrorResponse
+
+func (response RevokeEndorsement400JSONResponse) VisitRevokeEndorsementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEndorsement404JSONResponse ErrorResponse
+
+func (response RevokeEndorsement404JSONResponse) VisitRevokeEndorsementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLedgerHeadRequestObject struct {
+	LedgerId string `json:"ledger_id"`
+}
+
+type GetLedgerHeadResponseObject interface {
+	VisitGetLedgerHeadResponse(w http.ResponseWriter) error
+}
+
+type GetLedgerHead200JSONResponse HeadResponse
+
+func (response GetLedgerHead200JSONResponse) VisitGetLedgerHeadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLedgerHead404JSONResponse ErrorResponse
+
+func (response GetLedgerHead404JSONResponse) VisitGetLedgerHeadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InitLedgerRequestObject struct {
+	LedgerId string `json:"ledger_id"`
+}
+
+type InitLedgerResponseObject interface {
+	VisitInitLedgerResponse(w http.ResponseWriter) error
+}
+
+type InitLedger201JSONResponse InitLedgerResponse
+
+func (response InitLedger201JSONResponse) VisitInitLedgerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InitLedger400JSONResponse ErrorResponse
+
+func (response InitLedger400JSONResponse) VisitInitLedgerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InitLedger409JSONResponse ErrorResponse
+
+func (response InitLedger409JSONResponse) VisitInitLedgerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecordRequestObject struct {
+	RecordDigest string `json:"record_digest"`
+}
+
+type GetRecordResponseObject interface {
+	VisitGetRecordResponse(w http.ResponseWriter) error
+}
+
+type GetRecord200JSONResponse RecordResponse
+
+func (response GetRecord200JSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRecord404JSONResponse ErrorResponse
+
+func (response GetRecord404JSONResponse) VisitGetRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-
+	// GetHealthz Health check endpoint
 	// (GET /healthz)
 	GetHealthz(ctx context.Context, request GetHealthzRequestObject) (GetHealthzResponseObject, error)
+	// AcceptEndorsement Admit an accepted endorsement to the ledger
+	// (POST /v1/ledgers/{ledger_id}/endorsements/accept)
+	AcceptEndorsement(ctx context.Context, request AcceptEndorsementRequestObject) (AcceptEndorsementResponseObject, error)
+	// RevokeEndorsement Admit an endorsement revocation to the ledger
+	// (POST /v1/ledgers/{ledger_id}/endorsements/revoke)
+	RevokeEndorsement(ctx context.Context, request RevokeEndorsementRequestObject) (RevokeEndorsementResponseObject, error)
+	// GetLedgerHead Get the current chain head of a ledger
+	// (GET /v1/ledgers/{ledger_id}/head)
+	GetLedgerHead(ctx context.Context, request GetLedgerHeadRequestObject) (GetLedgerHeadResponseObject, error)
+	// InitLedger Initialize a new ledger with its genesis record
+	// (POST /v1/ledgers/{ledger_id}/init)
+	InitLedger(ctx context.Context, request InitLedgerRequestObject) (InitLedgerResponseObject, error)
+	// GetRecord Get a ledger record by digest
+	// (GET /v1/records/{record_digest})
+	GetRecord(ctx context.Context, request GetRecordRequestObject) (GetRecordResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -279,6 +800,150 @@ func (sh *strictHandler) GetHealthz(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthzResponseObject); ok {
 		if err := validResponse.VisitGetHealthzResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptEndorsement operation middleware
+func (sh *strictHandler) AcceptEndorsement(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	var request AcceptEndorsementRequestObject
+
+	request.LedgerId = ledgerId
+
+	var body AcceptEndorsementJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptEndorsement(ctx, request.(AcceptEndorsementRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptEndorsement")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptEndorsementResponseObject); ok {
+		if err := validResponse.VisitAcceptEndorsementResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeEndorsement operation middleware
+func (sh *strictHandler) RevokeEndorsement(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	var request RevokeEndorsementRequestObject
+
+	request.LedgerId = ledgerId
+
+	var body RevokeEndorsementJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeEndorsement(ctx, request.(RevokeEndorsementRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeEndorsement")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeEndorsementResponseObject); ok {
+		if err := validResponse.VisitRevokeEndorsementResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetLedgerHead operation middleware
+func (sh *strictHandler) GetLedgerHead(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	var request GetLedgerHeadRequestObject
+
+	request.LedgerId = ledgerId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetLedgerHead(ctx, request.(GetLedgerHeadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetLedgerHead")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetLedgerHeadResponseObject); ok {
+		if err := validResponse.VisitGetLedgerHeadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// InitLedger operation middleware
+func (sh *strictHandler) InitLedger(w http.ResponseWriter, r *http.Request, ledgerId string) {
+	var request InitLedgerRequestObject
+
+	request.LedgerId = ledgerId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.InitLedger(ctx, request.(InitLedgerRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "InitLedger")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(InitLedgerResponseObject); ok {
+		if err := validResponse.VisitInitLedgerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRecord operation middleware
+func (sh *strictHandler) GetRecord(w http.ResponseWriter, r *http.Request, recordDigest string) {
+	var request GetRecordRequestObject
+
+	request.RecordDigest = recordDigest
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRecord(ctx, request.(GetRecordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRecord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRecordResponseObject); ok {
+		if err := validResponse.VisitGetRecordResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

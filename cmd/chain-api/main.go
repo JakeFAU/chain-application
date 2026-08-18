@@ -11,10 +11,13 @@ import (
 	"syscall"
 	"unicode/utf8"
 
+	"github.com/JakeFAU/chain-application/internal/admission"
 	"github.com/JakeFAU/chain-application/internal/app"
 	"github.com/JakeFAU/chain-application/internal/config"
 	"github.com/JakeFAU/chain-application/internal/httpapi"
+	"github.com/JakeFAU/chain-application/internal/ledgerstore"
 	"github.com/JakeFAU/chain-application/internal/observability"
+	"github.com/JakeFAU/chain-application/internal/signer"
 	"go.uber.org/zap"
 )
 
@@ -53,7 +56,36 @@ func run() int {
 	}
 	logger := observabilityRuntime.Logger()
 
-	handler := httpapi.NewHandler(&httpapi.Server{}, observabilityRuntime.WrapHTTP)
+	var apiServer *httpapi.Server
+	if cfg.DatabaseURL != "" {
+		store, err := ledgerstore.Open(context.Background(), cfg.DatabaseURL)
+		if err != nil {
+			logger.Error("connect to database failed", zap.Error(err))
+			cleanupRuntimeAfterStartupFailure(cfg, observabilityRuntime, logger)
+			return exitFailure
+		}
+		defer store.Close()
+
+		localSigner, err := signer.GenerateLocalSigner(cfg.SignerKeyReference)
+		if err != nil {
+			logger.Error("generate system signer failed", zap.Error(err))
+			cleanupRuntimeAfterStartupFailure(cfg, observabilityRuntime, logger)
+			return exitFailure
+		}
+
+		admissionSvc, err := admission.New(store, localSigner)
+		if err != nil {
+			logger.Error("initialize admission service failed", zap.Error(err))
+			cleanupRuntimeAfterStartupFailure(cfg, observabilityRuntime, logger)
+			return exitFailure
+		}
+
+		apiServer = httpapi.NewServer(admissionSvc, store)
+	} else {
+		apiServer = httpapi.NewServer(nil, nil)
+	}
+
+	handler := httpapi.NewHandler(apiServer, observabilityRuntime.WrapHTTP)
 	listener, err := net.Listen(listenNetwork, cfg.Address())
 	if err != nil {
 		logger.Error(listenFailureMessage, zap.Error(err))
