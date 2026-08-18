@@ -77,6 +77,43 @@ func TestNewGenesisEventAcceptsAnyUnsignedTimestamp(t *testing.T) {
 	}
 }
 
+func TestNewEventContinuation(t *testing.T) {
+	t.Parallel()
+
+	ledgerID := testLedgerID()
+	prevDigest := Digest{0x01, 0x02, 0x03, 0x04}
+	payload := []byte{0xa1, 0x00, 0x01} // valid canonical CBOR map {0: 1}
+
+	event, err := NewEvent(
+		ledgerID,
+		2,
+		&prevDigest,
+		1_735_689_600_500,
+		EventKind(100),
+		1,
+		payload,
+	)
+	if err != nil {
+		t.Fatalf("NewEvent: %v", err)
+	}
+
+	if event.Sequence() != 2 {
+		t.Fatalf("sequence = %d, want 2", event.Sequence())
+	}
+	if digest, ok := event.PreviousRecordDigest(); !ok || digest != prevDigest {
+		t.Fatalf("previous digest = (%x, %t), want (%x, true)", digest, ok, prevDigest)
+	}
+	if event.Kind() != EventKind(100) {
+		t.Fatalf("kind = %d, want 100", event.Kind())
+	}
+	if event.PayloadVersion() != 1 {
+		t.Fatalf("payload version = %d, want 1", event.PayloadVersion())
+	}
+	if !bytes.Equal(event.PayloadBytes(), payload) {
+		t.Fatalf("payload bytes = %x, want %x", event.PayloadBytes(), payload)
+	}
+}
+
 func TestValidateEventStructureRejectsInvalidBodies(t *testing.T) {
 	t.Parallel()
 
